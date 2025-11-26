@@ -1,0 +1,410 @@
+================================================================================
+    QUESTION GENERATION & CLARITY DETECTION SYSTEM - USER GUIDE
+================================================================================
+
+This system adds two powerful features to the helpdesk chatbot:
+
+1. LEVEL-WISE QUESTION GENERATION
+   - Automatically generates beginner, intermediate, and advanced questions
+   - Helps users explore documentation
+   - Questions are based on actual documentation content
+
+2. QUERY CLARITY DETECTION & CLARIFICATION
+   - Detects when user queries are unclear or ambiguous
+   - Automatically asks clarifying questions
+   - Improves response accuracy
+
+================================================================================
+FEATURE 1: LEVEL-WISE QUESTION GENERATION
+================================================================================
+
+WHAT IT DOES:
+-------------
+The system can automatically generate helpful questions about any module based
+on the documentation. These questions are categorized into three levels:
+- BEGINNER: Basic concepts and simple operations
+- INTERMEDIATE: Specific features and workflows
+- ADVANCED: Configuration, troubleshooting, and integration
+
+HOW TO USE:
+-----------
+
+1. Generate Questions for a Module (API):
+   
+   Endpoint: POST /questions/generate
+   Body: {
+       "module": "Purchasing",
+       "difficulty_level": "all",  // or "beginner", "intermediate", "advanced"
+       "tenant_id": "default"
+   }
+   
+   Response:
+   {
+       "success": true,
+       "module": "Purchasing",
+       "questions": {
+           "beginner": ["question 1", "question 2", ...],
+           "intermediate": [...],
+           "advanced": [...]
+       },
+       "formatted_questions": "... formatted text ..."
+   }
+
+2. Generate Questions for All Modules:
+   
+   Endpoint: POST /questions/generate-all
+   Body: {
+       "tenant_id": "default"
+   }
+   
+   This will generate questions for all modules in your system.
+
+3. Get Saved Questions:
+   
+   Endpoint: GET /questions/list/{module}?difficulty_level=beginner
+   
+   Retrieves previously generated questions from the database.
+
+4. Get Random Questions (for exploration):
+   
+   Endpoint: GET /questions/random/{module}?count=3
+   
+   Returns random questions to help users explore documentation.
+
+PROGRAMMATIC USAGE:
+-------------------
+
+from llm.question_generator import (
+    generate_module_questions,
+    format_questions_for_display
+)
+from llm.rag import search
+
+# Get documentation context
+docs = search("What is Purchasing module?", "default")
+context = "\n".join(docs)
+
+# Generate questions
+questions = generate_module_questions("Purchasing", context, "all")
+
+# Format for display
+formatted = format_questions_for_display(questions, "Purchasing")
+print(formatted)
+
+OUTPUT EXAMPLE:
+---------------
+📚 Sample Questions for Purchasing Module
+
+🟢 Beginner Level
+1. What is the Purchasing module used for?
+2. How do I create a purchase order?
+3. What is a purchase requisition?
+
+🟡 Intermediate Level
+1. How do I manage vendor relationships?
+2. What is the RFQ process?
+3. How do I receive purchased items?
+
+🔴 Advanced Level
+1. How do I configure automated approval workflows?
+2. How do I integrate Purchasing with Finance?
+3. How do I set up vendor evaluation criteria?
+
+================================================================================
+FEATURE 2: QUERY CLARITY DETECTION & CLARIFICATION
+================================================================================
+
+WHAT IT DOES:
+-------------
+When a user's query is unclear, vague, or ambiguous, the system:
+1. Detects the lack of clarity
+2. Identifies specific issues (too short, missing context, etc.)
+3. Generates relevant clarifying questions
+4. Asks the user for more information
+
+AUTOMATIC DETECTION:
+--------------------
+This feature is AUTOMATICALLY integrated into the chat endpoint.
+When a user sends an unclear query, they will receive clarifying questions
+instead of a potentially incorrect answer.
+
+EXAMPLES OF UNCLEAR QUERIES:
+----------------------------
+
+Query: "help"
+Clarity Score: 0.1 (very unclear)
+Issues: Query too short
+Clarifying Questions:
+  - What specific topic would you like help with?
+  - Which module are you working with?
+
+Query: "how to setup?"
+Clarity Score: 0.3
+Issues: Query about 'setup' needs more details
+Clarifying Questions:
+  - Which module are you setting up?
+  - What step are you on?
+
+Query: "it not working"
+Clarity Score: 0.4
+Issues: Ambiguous pronoun without context
+Clarifying Questions:
+  - What specifically is not working?
+  - What were you trying to do?
+
+Query: "Tell me about sales and inventory and finance"
+Clarity Score: 0.4
+Issues: Query covers multiple topics
+Clarifying Questions:
+  - Let's focus on one topic at a time. Which would you like to discuss first?
+
+CLEAR QUERIES:
+--------------
+
+Query: "What are the main features of the Purchasing module?"
+Clarity Score: 0.8+
+Result: Direct answer provided
+
+Query: "How do I create a purchase order in Verax?"
+Clarity Score: 0.8+
+Result: Direct answer provided
+
+HOW IT WORKS IN CHAT:
+----------------------
+
+User sends: "help"
+
+Chatbot responds:
+"I'd like to help you better! To provide the most accurate answer, could you clarify:
+
+1. What specific topic would you like help with?
+2. Which module are you working with?
+3. What are you trying to accomplish?
+
+Feel free to provide any additional details that might be helpful!"
+
+User then provides more context, and gets an accurate answer.
+
+CHECK CLARITY MANUALLY (API):
+------------------------------
+
+Endpoint: POST /questions/check-clarity
+Body: {
+    "query": "help me",
+    "tenant_id": "default"
+}
+
+Response:
+{
+    "success": true,
+    "query": "help me",
+    "is_clear": false,
+    "clarity_score": 0.2,
+    "issues": ["Query too short"],
+    "clarifying_questions": [
+        "Could you provide more details about what you're trying to do?",
+        "Which specific module or feature are you asking about?"
+    ],
+    "formatted_clarification": "... formatted text ..."
+}
+
+PROGRAMMATIC USAGE:
+-------------------
+
+from llm.clarity_detector import (
+    analyze_query_clarity,
+    generate_clarifying_questions,
+    format_clarification_response
+)
+
+# Check if query needs clarification
+query = "help me"
+analysis = analyze_query_clarity(query)
+
+if not analysis["is_clear"]:
+    # Generate clarifying questions
+    questions = analysis["suggestions"]
+    
+    # Format response
+    response = format_clarification_response(query, questions)
+    print(response)
+
+CLARITY SCORE THRESHOLDS:
+--------------------------
+- 0.0 - 0.3: Very unclear - definitely ask for clarification
+- 0.3 - 0.6: Somewhat unclear - likely ask for clarification
+- 0.6 - 0.8: Reasonably clear - may proceed with answer
+- 0.8 - 1.0: Very clear - proceed with answer
+
+================================================================================
+DATABASE SCHEMA
+================================================================================
+
+TWO NEW TABLES:
+
+1. generated_questions
+   - Stores all generated questions by module and difficulty level
+   - Tracks how many times each question was asked
+   - Allows filtering by module, level, and tenant
+
+2. query_clarifications
+   - Tracks all instances where clarification was needed
+   - Stores clarity scores and issues
+   - Records user's clarification responses
+   - Helps improve the system over time
+
+================================================================================
+SETUP INSTRUCTIONS
+================================================================================
+
+1. INITIALIZE DATABASE TABLES:
+   
+   Run the initialization script:
+   
+   cd backend
+   python scripts/init_question_tables.py
+   
+   This creates the necessary database tables.
+
+2. VERIFY CONFIGURATION:
+   
+   Make sure your .env file has:
+   - OPENAI_API_KEY=your_api_key
+   - GPT_MODEL=gpt-4.1  (or your preferred model)
+   - MySQL database connection settings
+
+3. TEST THE SYSTEM:
+   
+   Run the test suite:
+   
+   cd backend
+   python test_question_system.py
+   
+   This will test all features and show examples.
+
+4. START THE SERVER:
+   
+   cd backend
+   python -m uvicorn app:app --reload --host 0.0.0.0 --port 8000
+
+5. ACCESS API DOCUMENTATION:
+   
+   Open browser: http://localhost:8000/docs
+   
+   You'll see new endpoints under "Questions" section.
+
+================================================================================
+API ENDPOINTS SUMMARY
+================================================================================
+
+Questions:
+  POST   /questions/generate          - Generate questions for a module
+  POST   /questions/generate-all      - Generate questions for all modules
+  GET    /questions/list/{module}     - Get saved questions
+  GET    /questions/random/{module}   - Get random questions
+  POST   /questions/check-clarity     - Check query clarity
+  GET    /questions/stats             - Get usage statistics
+
+Chat (Enhanced):
+  POST   /chat/query                  - Send query (now with clarity detection)
+
+================================================================================
+BENEFITS
+================================================================================
+
+1. IMPROVED USER EXPERIENCE:
+   - Users get help even when they don't know what to ask
+   - Reduces frustration from vague or incorrect answers
+   - Guides users to ask better questions
+
+2. BETTER DOCUMENTATION EXPLORATION:
+   - Generated questions help users discover features
+   - Level-wise organization helps users learn progressively
+   - Reduces time spent searching documentation
+
+3. TRAINING & ONBOARDING:
+   - New users can see example questions
+   - Questions serve as learning objectives
+   - Helps identify documentation gaps
+
+4. ANALYTICS & INSIGHTS:
+   - Track which questions are asked most
+   - Identify unclear documentation areas
+   - Measure query clarity trends
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Problem: "No questions generated"
+Solution: 
+  - Ensure documentation is loaded for the module
+  - Check OPENAI_API_KEY is valid
+  - Verify GPT_MODEL is accessible
+
+Problem: "Clarity detection too sensitive"
+Solution:
+  - Adjust threshold in generate_response_with_module()
+  - Default threshold is 0.6, you can lower it to 0.4-0.5
+
+Problem: "Database errors"
+Solution:
+  - Run: python scripts/init_question_tables.py
+  - Verify MySQL connection in .env
+  - Check database permissions
+
+Problem: "Questions not relevant"
+Solution:
+  - Ensure quality documentation is uploaded
+  - Questions are only as good as the documentation
+  - Consider regenerating with better context
+
+================================================================================
+ADVANCED CUSTOMIZATION
+================================================================================
+
+1. ADJUST CLARITY THRESHOLD:
+   
+   In backend/llm/rag.py, line ~230:
+   
+   if not is_clear and clarity_score < 0.6:  # Change 0.6 to your preference
+       ...
+
+2. CUSTOMIZE QUESTION PROMPTS:
+   
+   Edit backend/llm/question_generator.py
+   Modify the system_prompt in generate_module_questions()
+
+3. ADD CUSTOM CLARITY CHECKS:
+   
+   Edit backend/llm/clarity_detector.py
+   Add custom patterns in analyze_query_clarity()
+
+4. CACHE DURATION:
+   
+   Question cache: 30 minutes (configurable in question_generator.py)
+   Pattern cache: 5 minutes (configurable in prompt_enhancer.py)
+
+================================================================================
+BEST PRACTICES
+================================================================================
+
+1. Generate questions after uploading new documentation
+2. Regenerate questions periodically to keep them fresh
+3. Monitor clarification statistics to improve documentation
+4. Use random questions feature to engage users
+5. Encourage users to provide detailed queries for best results
+
+================================================================================
+SUPPORT & FEEDBACK
+================================================================================
+
+For issues, improvements, or questions about this system:
+- Check the test script: test_question_system.py
+- Review the code: llm/question_generator.py, llm/clarity_detector.py
+- Test endpoints: http://localhost:8000/docs
+
+================================================================================
+END OF GUIDE
+================================================================================
+
