@@ -14,7 +14,11 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production-m
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
+# Required auth - raises 403 if no token
 security = HTTPBearer()
+
+# Optional auth - doesn't raise error if no token
+security_optional = HTTPBearer(auto_error=False)
 
 class AuthUtils:
     """Authentication utility functions"""
@@ -110,9 +114,10 @@ def require_role(required_role: str):
 
 
 # Optional authentication (doesn't fail if no token)
-def get_current_user_optional(credentials: Optional[HTTPAuthorizationCredentials] = Security(security)) -> Optional[Dict]:
+def get_current_user_optional(credentials: Optional[HTTPAuthorizationCredentials] = Security(security_optional)) -> Optional[Dict]:
     """
     Optional authentication - returns None if no token provided
+    Uses security_optional which has auto_error=False to prevent 403 when no token is provided
     """
     if not credentials:
         return None
@@ -120,6 +125,8 @@ def get_current_user_optional(credentials: Optional[HTTPAuthorizationCredentials
     try:
         return get_current_user(credentials)
     except HTTPException:
+        return None
+    except Exception:
         return None
 
 

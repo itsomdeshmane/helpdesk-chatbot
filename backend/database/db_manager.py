@@ -188,13 +188,12 @@ class DatabaseManager:
                 usage_count INT DEFAULT 0
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""",
             
-            """CREATE TABLE IF NOT EXISTS erp_entities (
+            """CREATE TABLE IF NOT EXISTS system_entities (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 entity_key VARCHAR(50) NOT NULL,
                 entity_name VARCHAR(100) NOT NULL,
                 entity_type VARCHAR(50) DEFAULT 'general',
                 description TEXT,
-                related_modules TEXT,
                 is_active BOOLEAN DEFAULT TRUE,
                 priority INT DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -210,33 +209,23 @@ class DatabaseManager:
             cursor.execute(table_sql)
         
         # Insert default entities if table is empty
-        cursor.execute("SELECT COUNT(*) as count FROM erp_entities")
+        cursor.execute("SELECT COUNT(*) as count FROM system_entities")
         result = cursor.fetchone()
         if result[0] == 0:
             default_entities = [
-                ('item', 'Item', 'master', 'Product or service item in the system', 'Inventory,Purchasing,Sales,Manufacturing', 1),
-                ('customer', 'Customer', 'master', 'Customer or client information', 'Sales,CRM,Finance', 1),
-                ('vendor', 'Vendor', 'master', 'Supplier or vendor information', 'Purchasing,Finance', 1),
-                ('supplier', 'Supplier', 'master', 'Supplier information (synonym for vendor)', 'Purchasing,Finance', 1),
-                ('invoice', 'Invoice', 'transactional', 'Sales or purchase invoice', 'Finance,Sales,Purchasing', 1),
-                ('order', 'Order', 'transactional', 'Sales or purchase order', 'Sales,Purchasing', 1),
-                ('purchase', 'Purchase Order', 'transactional', 'Purchase order document', 'Purchasing,Finance', 1),
-                ('sale', 'Sales Order', 'transactional', 'Sales order document', 'Sales,Finance', 1),
-                ('employee', 'Employee', 'master', 'Employee information', 'HR,Payroll', 1),
-                ('user', 'User', 'master', 'System user account', 'General,Administration', 1),
-                ('inventory', 'Inventory', 'reference', 'Stock and inventory items', 'Inventory,Warehouse', 1),
-                ('stock', 'Stock', 'reference', 'Inventory stock levels', 'Inventory,Warehouse', 1),
-                ('product', 'Product', 'master', 'Product information', 'Sales,Inventory,Manufacturing', 1),
-                ('quotation', 'Quotation', 'transactional', 'Sales quotation or quote', 'Sales,CRM', 2),
-                ('warehouse', 'Warehouse', 'master', 'Warehouse location', 'Inventory,Warehouse', 2),
-                ('payment', 'Payment', 'transactional', 'Payment transaction', 'Finance,Sales,Purchasing', 2),
-                ('account', 'Account', 'master', 'Financial account', 'Finance,Accounting', 2),
-                ('report', 'Report', 'reference', 'System report or analytics', 'Reporting,All Modules', 2),
+                ('user', 'User', 'reference', 'System user or account', 3),
+                ('customer', 'Customer', 'reference', 'Customer or client', 3),
+                ('order', 'Order', 'transactional', 'Order or request', 2),
+                ('item', 'Item', 'reference', 'Item, product, or resource', 2),
+                ('document', 'Document', 'reference', 'Document or file', 2),
+                ('report', 'Report', 'feature', 'System report or analytics', 2),
+                ('setting', 'Setting', 'configuration', 'System configuration or setting', 1),
+                ('notification', 'Notification', 'feature', 'System notification or alert', 1),
             ]
             
-            insert_query = """INSERT INTO erp_entities 
-                (entity_key, entity_name, entity_type, description, related_modules, priority) 
-                VALUES (%s, %s, %s, %s, %s, %s)"""
+            insert_query = """INSERT INTO system_entities 
+                (entity_key, entity_name, entity_type, description, priority) 
+                VALUES (%s, %s, %s, %s, %s)"""
             
             for entity_data in default_entities:
                 cursor.execute(insert_query, entity_data)
@@ -245,15 +234,15 @@ class DatabaseManager:
         conn.commit()
         print("✅ Tables created manually", flush=True)
     
-    def save_interaction(self, tenant_id: str, query: str, response: str, module: str = None, response_time: float = None):
+    def save_interaction(self, tenant_id: str, query: str, response: str, response_time: float = None):
         """Save chat interaction"""
         try:
             with self.get_connection() as conn:
                 conn.execute(
                     """INSERT INTO chat_interactions 
-                       (tenant_id, query, response, module, response_time) 
-                       VALUES (%s, %s, %s, %s, %s)""",
-                    (tenant_id, query, response, module, response_time)
+                       (tenant_id, query, response, response_time) 
+                       VALUES (%s, %s, %s, %s)""",
+                    (tenant_id, query, response, response_time)
                 )
                 conn.commit()
         except Error as e:
@@ -264,7 +253,7 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 cursor = conn.execute(
-                    """SELECT query, response, module, created_at 
+                    """SELECT query, response, created_at 
                        FROM chat_interactions 
                        WHERE tenant_id = %s 
                        ORDER BY created_at DESC 
@@ -276,37 +265,27 @@ class DatabaseManager:
             print(f"Error getting interactions: {e}", flush=True)
             return []
     
-    def get_frequently_asked_questions(self, tenant_id: str = "default", limit: int = 10, module: str = None):
+    def get_frequently_asked_questions(self, tenant_id: str = "default", limit: int = 10):
         """
         Get frequently asked questions from chat history.
         Groups similar questions and returns top N by frequency.
         """
         try:
             with self.get_connection() as conn:
-                # Build query based on filters
                 query = """
                     SELECT 
                         LOWER(TRIM(query)) as normalized_query,
                         query as original_query,
-                        module,
                         COUNT(*) as frequency,
                         MAX(created_at) as last_asked
                     FROM chat_interactions
                     WHERE tenant_id = %s
                         AND CHAR_LENGTH(query) > 10
-                """
-                params = [tenant_id]
-                
-                if module:
-                    query += " AND module = %s"
-                    params.append(module)
-                
-                query += """
                     GROUP BY normalized_query
                     ORDER BY frequency DESC, last_asked DESC
                     LIMIT %s
                 """
-                params.append(limit)
+                params = [tenant_id, limit]
                 
                 cursor = conn.execute(query, tuple(params))
                 results = cursor.fetchall()
@@ -317,7 +296,6 @@ class DatabaseManager:
                     faqs.append({
                         "question": row['original_query'],
                         "frequency": row['frequency'],
-                        "module": row['module'],
                         "last_asked": str(row['last_asked']) if row['last_asked'] else None
                     })
                 
@@ -326,34 +304,14 @@ class DatabaseManager:
             print(f"Error getting FAQs: {e}", flush=True)
             return []
     
-    def get_module_statistics(self, tenant_id: str = "default"):
-        """Get statistics by module"""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.execute(
-                    """SELECT 
-                        module, 
-                        COUNT(*) as count,
-                        AVG(response_time) as avg_time
-                       FROM chat_interactions 
-                       WHERE tenant_id = %s AND module IS NOT NULL
-                       GROUP BY module
-                       ORDER BY count DESC""",
-                    (tenant_id,)
-                )
-                return cursor.fetchall()
-        except Error as e:
-            print(f"Error getting module stats: {e}", flush=True)
-            return []
-    
-    def get_erp_entities(self, active_only: bool = True):
+    def get_system_entities(self, active_only: bool = True):
         """
-        Get all ERP entities from database for entity recognition
+        Get all system entities from database for entity recognition
         Returns dict mapping entity_key to entity_name
         """
         try:
             with self.get_connection() as conn:
-                query = "SELECT entity_key, entity_name, entity_type, related_modules FROM erp_entities"
+                query = "SELECT entity_key, entity_name, entity_type FROM system_entities"
                 params = []
                 
                 if active_only:
@@ -371,7 +329,7 @@ class DatabaseManager:
                 
                 return entities_dict
         except Error as e:
-            print(f"Error getting ERP entities: {e}", flush=True)
+            print(f"Error getting system entities: {e}", flush=True)
             return {}
     
     def get_entity_details(self, entity_key: str):
@@ -379,9 +337,8 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 cursor = conn.execute(
-                    """SELECT entity_key, entity_name, entity_type, description, 
-                              related_modules, priority 
-                       FROM erp_entities 
+                    """SELECT entity_key, entity_name, entity_type, description, priority 
+                       FROM system_entities 
                        WHERE entity_key = %s AND is_active = TRUE""",
                     (entity_key,)
                 )
@@ -390,28 +347,28 @@ class DatabaseManager:
             print(f"Error getting entity details: {e}", flush=True)
             return None
     
-    def add_erp_entity(self, entity_key: str, entity_name: str, entity_type: str = 'general',
-                       description: str = None, related_modules: str = None, priority: int = 1):
-        """Add a new ERP entity to the database"""
+    def add_system_entity(self, entity_key: str, entity_name: str, entity_type: str = 'general',
+                       description: str = None, priority: int = 1):
+        """Add a new system entity to the database"""
         try:
             with self.get_connection() as conn:
                 conn.execute(
-                    """INSERT INTO erp_entities 
-                       (entity_key, entity_name, entity_type, description, related_modules, priority) 
-                       VALUES (%s, %s, %s, %s, %s, %s)""",
-                    (entity_key, entity_name, entity_type, description, related_modules, priority)
+                    """INSERT INTO system_entities 
+                       (entity_key, entity_name, entity_type, description, priority) 
+                       VALUES (%s, %s, %s, %s, %s)""",
+                    (entity_key, entity_name, entity_type, description, priority)
                 )
                 conn.commit()
                 return True
         except Error as e:
-            print(f"Error adding ERP entity: {e}", flush=True)
+            print(f"Error adding system entity: {e}", flush=True)
             return False
     
-    def update_erp_entity(self, entity_key: str, **kwargs):
-        """Update an existing ERP entity"""
+    def update_system_entity(self, entity_key: str, **kwargs):
+        """Update an existing system entity"""
         try:
             # Build dynamic UPDATE query
-            allowed_fields = ['entity_name', 'entity_type', 'description', 'related_modules', 'priority', 'is_active']
+            allowed_fields = ['entity_name', 'entity_type', 'description', 'priority', 'is_active']
             updates = []
             values = []
             
@@ -426,12 +383,12 @@ class DatabaseManager:
             values.append(entity_key)
             
             with self.get_connection() as conn:
-                query = f"UPDATE erp_entities SET {', '.join(updates)} WHERE entity_key = %s"
+                query = f"UPDATE system_entities SET {', '.join(updates)} WHERE entity_key = %s"
                 conn.execute(query, tuple(values))
                 conn.commit()
                 return True
         except Error as e:
-            print(f"Error updating ERP entity: {e}", flush=True)
+            print(f"Error updating system entity: {e}", flush=True)
             return False
 
 # Singleton instance

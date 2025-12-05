@@ -12,15 +12,15 @@ import re
 # Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Cache for ERP entities (refreshes every 10 minutes)
+# Cache for system entities (refreshes every 10 minutes)
 _entity_cache = None
 _entity_cache_timestamp = None
 ENTITY_CACHE_DURATION = timedelta(minutes=10)
 
 
-def load_erp_entities():
+def load_system_entities():
     """
-    Load ERP entities from database with caching
+    Load system entities from database with caching
     Returns dict mapping entity_key to entity_name
     """
     global _entity_cache, _entity_cache_timestamp
@@ -33,7 +33,7 @@ def load_erp_entities():
     # Try to load from database
     try:
         from database.db_manager import db_manager
-        entities_dict = db_manager.get_erp_entities(active_only=True)
+        entities_dict = db_manager.get_system_entities(active_only=True)
         
         if entities_dict:
             _entity_cache = entities_dict
@@ -49,19 +49,14 @@ def load_erp_entities():
 def get_default_entities():
     """Fallback default entities if database is unavailable"""
     return {
-        'item': 'Item',
-        'customer': 'Customer',
-        'vendor': 'Vendor',
-        'supplier': 'Supplier',
-        'invoice': 'Invoice',
-        'order': 'Order',
-        'purchase': 'Purchase Order',
-        'sale': 'Sales Order',
-        'employee': 'Employee',
         'user': 'User',
-        'inventory': 'Inventory',
-        'stock': 'Stock',
-        'product': 'Product',
+        'customer': 'Customer',
+        'order': 'Order',
+        'item': 'Item',
+        'document': 'Document',
+        'report': 'Report',
+        'setting': 'Setting',
+        'notification': 'Notification',
     }
 
 
@@ -70,7 +65,7 @@ def refresh_entity_cache():
     global _entity_cache, _entity_cache_timestamp
     _entity_cache = None
     _entity_cache_timestamp = None
-    return load_erp_entities()
+    return load_system_entities()
 
 
 def analyze_query_clarity(query: str) -> dict:
@@ -172,9 +167,9 @@ def _detect_query_type(query: str) -> str:
     query_lower = query.lower()
     
     # Load entities from database (with caching)
-    entities = load_erp_entities()
+    entities = load_system_entities()
     
-    # Extract entity mentions (item, customer, vendor, etc.)
+    # Extract entity mentions (user, customer, order, etc.)
     mentioned_entity = None
     for entity_key in entities.keys():
         if entity_key in query_lower:
@@ -211,7 +206,7 @@ def _generate_clarifying_questions(query: str, query_type: str, issues: list) ->
     """
     try:
         # Load entities from database (with caching)
-        entities = load_erp_entities()
+        entities = load_system_entities()
         
         # Extract key entities from the query
         query_lower = query.lower()
@@ -225,7 +220,7 @@ def _generate_clarifying_questions(query: str, query_type: str, issues: list) ->
         # Build context-aware prompt
         issues_text = ', '.join(issues) if issues else 'needs clarification'
         
-        system_prompt = f"""You are a helpful ERP assistant. A user asked a question but it {issues_text}.
+        system_prompt = f"""You are a helpful assistant. A user asked a question but it {issues_text}.
 
 Generate 2-3 SHORT clarifying questions to understand what they need.
 
@@ -301,8 +296,8 @@ def _generate_fallback_questions(query: str, query_type: str, entity: str = None
     entity_name = entity if entity else "this"
     
     if 'too vague' in str(issues).lower() or 'too short' in str(issues).lower():
-        questions.append(f"What would you like to know about the ERP system?")
-        questions.append(f"Which module are you asking about? (e.g., Sales, Purchasing, Inventory)")
+        questions.append(f"What would you like to know about the system?")
+        questions.append(f"Which feature or area are you asking about?")
     
     if 'incomplete' in str(issues).lower():
         if query_type == 'how-to':
@@ -323,7 +318,7 @@ def _generate_fallback_questions(query: str, query_type: str, entity: str = None
     
     if not questions:
         questions.append(f"Could you provide more details about what you need help with?")
-        questions.append(f"Which ERP module is your question related to?")
+        questions.append(f"Which feature or area is your question related to?")
     
     return questions[:3]
 

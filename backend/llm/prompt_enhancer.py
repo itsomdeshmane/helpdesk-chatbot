@@ -43,19 +43,20 @@ def get_enhanced_prompt(query: str, context: str, query_type: str = None) -> tup
     if query_type is None:
         query_type = detect_query_type(query)
     
-    base_instructions = """You are a helpful AI assistant for the Verax ERP helpdesk system.
+    base_instructions = """You are a helpdesk assistant that ONLY answers from the provided documentation.
 
-🚨 CRITICAL RULES - MUST FOLLOW STRICTLY:
-1. ONLY use information from the provided documentation context below
-2. DO NOT use your general knowledge or training data
-3. DO NOT make assumptions or infer information not explicitly stated in the context
-4. If the context doesn't contain the answer, respond with: "I don't have this information in the current documentation. Please contact support or check the complete documentation."
-5. Extract ALL relevant details ONLY from the provided documentation
-6. For lists, include EVERYTHING mentioned in the context - don't skip items
-7. Use simple, clear language that anyone can understand
-8. DO NOT add information from outside the provided context, even if you know it
+🚨 ABSOLUTE RULES - YOU MUST FOLLOW:
+1. ONLY use information EXPLICITLY written in the Documentation Context below
+2. DO NOT use ANY external knowledge, training data, or general information
+3. DO NOT make assumptions or infer anything not directly stated in the context
+4. DO NOT provide generic answers that could apply to any system
+5. If the answer is NOT in the Documentation Context, respond EXACTLY with:
+   "I don't have information about this in the loaded documentation. Please check if the relevant document has been uploaded or contact support."
+6. Every fact in your answer MUST come directly from the provided context
+7. For lists, include ONLY items mentioned in the context
+8. Use simple, clear language
 
-⚠️ NEVER HALLUCINATE OR MAKE UP INFORMATION ⚠️
+⚠️ NEVER MAKE UP OR GUESS INFORMATION - ONLY USE WHAT IS IN THE CONTEXT ⚠️
 
 FORMATTING RULES:
 """
@@ -69,7 +70,7 @@ FORMATTING RULES:
 - Start with a clear introduction
 - Example format:
   
-  Here are the submodules in the Purchasing module:
+  Here are the available features:
   
   • Vendors - Manage supplier information
   • Manufacturers - Track product manufacturers  
@@ -77,11 +78,9 @@ FORMATTING RULES:
   • Requisitions - Request items for purchase
   • Request for Quote (RFQ) - Request quotes from vendors
   • Current Demand - View material requirements
-  • Purchasing Reports - Generate purchasing analytics
+  • Reports - Generate analytics
 
-IMPORTANT: Extract ALL items from the documentation. Do not summarize or reduce the list.
-
-Classify the ERP module at the end as: MODULE: [module name]"""
+IMPORTANT: Extract ALL items from the documentation. Do not summarize or reduce the list."""
 
     elif query_type == 'step-by-step':
         system_prompt = base_instructions + """
@@ -92,23 +91,21 @@ Classify the ERP module at the end as: MODULE: [module name]"""
 - Add notes or warnings if needed
 - Example format:
 
-  To configure the inventory module, follow these steps:
+  To configure the feature, follow these steps:
   
   Step 1: Navigate to Settings
   Go to the main menu and click on "System Settings"
   
-  Step 2: Select Inventory Module
-  Click on "Inventory" from the modules list
+  Step 2: Select Feature
+  Click on the feature from the menu
   
   Step 3: Configure Basic Settings
-  - Set your default warehouse
-  - Choose your inventory valuation method
-  - Enable stock tracking
+  - Set your preferences
+  - Choose your options
+  - Enable tracking
   
   Step 4: Save and Test
-  Click "Save Changes" and verify the settings
-
-Classify the ERP module at the end as: MODULE: [module name]"""
+  Click "Save Changes" and verify the settings"""
 
     elif query_type == 'definition':
         system_prompt = base_instructions + """
@@ -118,17 +115,15 @@ Classify the ERP module at the end as: MODULE: [module name]"""
 - Mention key features or benefits
 - Example format:
 
-  An ERP (Enterprise Resource Planning) system is software that helps businesses manage their daily operations in one place.
+  A workflow is a sequence of steps required to complete a specific process or task.
   
-  It combines different business functions like:
-  - Accounting and finance
-  - Inventory management
-  - Sales and purchasing
-  - Human resources
+  Key characteristics:
+  - Defines the order of operations
+  - Assigns responsibilities
+  - Tracks progress and status
+  - Ensures consistency
   
-  Think of it as a central hub where all business information comes together, making it easier to make decisions and run your business efficiently.
-
-Classify the ERP module at the end as: MODULE: [module name]"""
+  Think of it as a roadmap that guides users through a process, ensuring nothing is missed and everyone knows their role."""
 
     elif query_type == 'comparison':
         system_prompt = base_instructions + """
@@ -138,21 +133,19 @@ Classify the ERP module at the end as: MODULE: [module name]"""
 - Be objective and factual
 - Example format:
 
-  Here's the difference between FIFO and LIFO inventory methods:
+  Here's the difference between Manual and Automated workflows:
   
-  FIFO (First In, First Out):
-  - Items purchased first are sold first
-  - Better for perishable goods
-  - Usually results in higher profits during inflation
-  - More commonly used
+  Manual Workflow:
+  - Requires human intervention for each step
+  - More flexible and adaptable
+  - Slower but allows for careful review
+  - Better for complex decisions
   
-  LIFO (Last In, First Out):
-  - Items purchased last are sold first
-  - Better for non-perishable items
-  - Can reduce tax liability during inflation
-  - Less commonly used internationally
-
-Classify the ERP module at the end as: MODULE: [module name]"""
+  Automated Workflow:
+  - Runs automatically based on rules
+  - Faster and more consistent
+  - Reduces human error
+  - Better for repetitive tasks"""
 
     elif query_type == 'troubleshooting':
         system_prompt = base_instructions + """
@@ -181,9 +174,7 @@ Classify the ERP module at the end as: MODULE: [module name]"""
   2. Refresh the page
   3. Try the operation again
   
-  If the issue persists, please contact technical support with the error code.
-
-Classify the ERP module at the end as: MODULE: [module name]"""
+  If the issue persists, please contact technical support with the error code."""
 
     else:  # general
         system_prompt = base_instructions + """
@@ -191,26 +182,24 @@ Classify the ERP module at the end as: MODULE: [module name]"""
 - Use paragraphs for explanations
 - Use bullet points for lists within the answer
 - Keep language simple and professional
-- Break complex topics into smaller sections
-
-Classify the ERP module at the end as: MODULE: [module name]"""
+- Break complex topics into smaller sections"""
 
     # Limit context size (larger for list queries to get complete sections)
     max_context_chars = 5000 if query_type == 'list' else 3000
     if len(context) > max_context_chars:
         context = context[:max_context_chars] + "\n... (additional context available)"
     
-    user_prompt = f"""Documentation Context:
+    user_prompt = f"""Documentation Context (USE ONLY THIS - NO EXTERNAL KNOWLEDGE):
 {context}
 
 User Question: {query}
 
-INSTRUCTIONS:
-- Answer STRICTLY using ONLY the information from the Documentation Context above
-- DO NOT use any external knowledge or general information
-- If the answer is not in the context, clearly state: "I don't have this information in the current documentation."
-- Include all relevant details found in the context
-- Do not add, assume, or infer anything beyond what is explicitly stated in the context"""
+⚠️ CRITICAL INSTRUCTIONS:
+- Answer ONLY using information from the Documentation Context above
+- DO NOT add ANY external knowledge or generic information
+- If the answer is NOT in the context, say: "I don't have information about this in the loaded documentation."
+- Do NOT make up, assume, or guess any information
+- Every fact must come directly from the context above"""
 
     return system_prompt, user_prompt
 

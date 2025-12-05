@@ -12,15 +12,15 @@ from ingestion.txt_reader import extract_txt_text
 from ingestion.chunker import chunk_text
 from ingestion.markdown_chunker import chunk_markdown
 from llm.rag import embed_chunks, clear_chunks_by_filename
+from llm.document_metadata_extractor import extract_all_metadata
 
-def load_docs_from_folder(docs_folder: str = None, tenant_id: str = "default", module: str = "general"):
+def load_docs_from_folder(docs_folder: str = None, tenant_id: str = "default"):
     """
     Load and process all documentation files from the docs folder.
     
     Args:
         docs_folder: Path to the docs folder (defaults to ../docs from backend)
         tenant_id: Tenant ID for the embeddings
-        module: Module name for categorization
     """
     if docs_folder is None:
         # Default to docs folder in project root
@@ -36,20 +36,26 @@ def load_docs_from_folder(docs_folder: str = None, tenant_id: str = "default", m
         print(f"Please place your documentation files (PDF, DOCX, XLSX) in: {docs_folder}")
         return
     
-    # Find all supported files
+    # Find all supported files (markdown handled separately by load_markdown_docs)
     supported_extensions = ['.pdf', '.docx', '.xlsx', '.txt']
     doc_files = []
     
     for ext in supported_extensions:
         doc_files.extend(docs_folder.glob(f"*{ext}"))
     
-    if not doc_files:
+    # Also check for markdown files
+    md_files = list(docs_folder.glob("*.md"))
+    
+    if not doc_files and not md_files:
         print(f"No documentation files found in {docs_folder}")
-        print(f"Supported formats: {', '.join(supported_extensions)}")
+        print(f"Supported formats: {', '.join(supported_extensions + ['.md'])}")
         return
     
     print(f"\n{'='*60}")
     print(f"Loading documentation files from: {docs_folder}")
+    print(f"{'='*60}")
+    print(f"📄 Regular files: {len(doc_files)}")
+    print(f"📝 Markdown files: {len(md_files)}")
     print(f"{'='*60}")
     
     total_chunks = 0
@@ -84,6 +90,15 @@ def load_docs_from_folder(docs_folder: str = None, tenant_id: str = "default", m
                 print(f"   ⚠️  Warning: No content extracted from {file_path.name}")
                 continue
             
+            # Extract metadata from document content
+            try:
+                results = extract_all_metadata(content, file_path.name, tenant_id)
+                total_extracted = sum(results.get(k, 0) for k in ['entities', 'keywords', 'faqs', 'synonyms', 'suggestions'] if isinstance(results.get(k), int))
+                if total_extracted > 0:
+                    print(f"   🎯 Extracted {total_extracted} total items")
+            except Exception as e:
+                print(f"   ⚠️  Metadata extraction failed: {e}")
+            
             # Chunk the text
             print(f"   ⏳ Splitting into chunks...")
             chunk_start = time.time()
@@ -98,7 +113,7 @@ def load_docs_from_folder(docs_folder: str = None, tenant_id: str = "default", m
             # Embed and store chunks
             print(f"   ⏳ Storing chunks...")
             embed_start = time.time()
-            embed_chunks(chunks, module, tenant_id, file_path.name)
+            embed_chunks(chunks, tenant_id, file_path.name)
             embed_time = time.time() - embed_start
             print(f"   ✅ Chunks stored in {embed_time:.2f}s")
             
@@ -112,54 +127,153 @@ def load_docs_from_folder(docs_folder: str = None, tenant_id: str = "default", m
             print(f"   ❌ Error processing {file_path.name}: {str(e)}")
             failed_files.append((file_path.name, str(e)))
     
+    # Process markdown files if found
+    md_chunks = 0
+    if md_files:
+        print(f"\n{'='*60}")
+        print(f"Processing Markdown Files")
+        print(f"{'='*60}")
+        
+        for md_file in md_files:
+            try:
+                chunks_created = _process_single_markdown_file(md_file, tenant_id)
+                if chunks_created > 0:
+                    md_chunks += chunks_created
+                    total_chunks += chunks_created
+                    processed_files += 1
+            except Exception as e:
+                print(f"   ❌ Error processing {md_file.name}: {str(e)}")
+                failed_files.append((md_file.name, str(e)))
+    
     print(f"\n{'='*60}")
     print(f"Documentation Loading Summary:")
-    print(f"  • Files processed: {processed_files}/{len(doc_files)}")
+    print(f"  • Regular files: {len(doc_files)}")
+    print(f"  • Markdown files: {len(md_files)}")
+    print(f"  • Total files processed: {processed_files}/{len(doc_files) + len(md_files)}")
     print(f"  • Total chunks indexed: {total_chunks}")
+    if md_chunks > 0:
+        print(f"  • Markdown chunks: {md_chunks}")
     if failed_files:
         print(f"  • Failed files: {len(failed_files)}")
         for filename, error in failed_files:
             print(f"    - {filename}: {error}")
     print(f"{'='*60}\n")
 
-def reload_docs(tenant_id: str = "default", module: str = "general"):
+def reload_docs(tenant_id: str = "default"):
     """
     Reload all documentation files from the docs folder.
     Useful for refreshing the knowledge base when docs are updated.
     """
     print("\n🔄 Reloading documentation files...")
-    load_docs_from_folder(tenant_id=tenant_id, module=module)
+    load_docs_from_folder(tenant_id=tenant_id)
 
 
-def load_markdown_docs(markdown_file: str = None, tenant_id: str = "default", module: str = "codebase_docs"):
+def load_markdown_docs(markdown_file: str = None, tenant_id: str = "default"):
     """
-    Load and process a markdown documentation file with structure-aware chunking.
+    Load and process markdown documentation file(s) with structure-aware chunking.
     Preserves sections, headings, lists, and code blocks together for better context.
     
     Args:
-        markdown_file: Path to the markdown documentation file (defaults to docs/VERAX_DOCUMENTATION.md)
+        markdown_file: Path to a specific markdown file, OR None to load ALL .md files from docs folder
         tenant_id: Tenant ID for the embeddings
-        module: Module name for categorization (defaults to "codebase_docs")
     
     Returns:
         int: Number of chunks created and stored
     """
+    backend_dir = Path(__file__).parent.parent
+    docs_folder = backend_dir.parent / "docs"
+    
+    # If no specific file provided, load ALL markdown files from docs folder
     if markdown_file is None:
-        # Default to VERAX_DOCUMENTATION.md in docs folder
-        backend_dir = Path(__file__).parent.parent
-        markdown_file = backend_dir.parent / "docs" / "VERAX_DOCUMENTATION.md"
+        return load_all_markdown_docs(docs_folder, tenant_id)
     else:
         markdown_file = Path(markdown_file)
+        return _process_single_markdown_file(markdown_file, tenant_id)
+
+
+def load_all_markdown_docs(docs_folder: str = None, tenant_id: str = "default"):
+    """
+    Load ALL markdown (.md) files from the docs folder.
+    
+    Args:
+        docs_folder: Path to docs folder (defaults to ../docs from backend)
+        tenant_id: Tenant ID for the embeddings
+    
+    Returns:
+        int: Total number of chunks created from all files
+    """
+    if docs_folder is None:
+        backend_dir = Path(__file__).parent.parent
+        docs_folder = backend_dir.parent / "docs"
+    else:
+        docs_folder = Path(docs_folder)
+    
+    if not docs_folder.exists():
+        print(f"❌ Docs folder not found: {docs_folder}")
+        return 0
+    
+    # Find ALL markdown files (any name with .md extension)
+    md_files = list(docs_folder.glob("*.md"))
+    
+    if not md_files:
+        print(f"📝 No markdown (.md) files found in: {docs_folder}")
+        return 0
+    
+    print(f"\n{'='*60}")
+    print(f"Loading ALL Markdown Documentation Files")
+    print(f"{'='*60}")
+    print(f"📁 Docs folder: {docs_folder}")
+    print(f"📄 Found {len(md_files)} markdown file(s):")
+    for f in md_files:
+        print(f"   • {f.name} ({f.stat().st_size / 1024:.1f} KB)")
+    print(f"{'='*60}\n")
+    
+    total_chunks = 0
+    processed_files = 0
+    failed_files = []
+    
+    for md_file in md_files:
+        try:
+            chunks = _process_single_markdown_file(md_file, tenant_id)
+            if chunks > 0:
+                total_chunks += chunks
+                processed_files += 1
+        except Exception as e:
+            print(f"   ❌ Error processing {md_file.name}: {str(e)}")
+            failed_files.append((md_file.name, str(e)))
+    
+    print(f"\n{'='*60}")
+    print(f"Markdown Documentation Loading Summary:")
+    print(f"  • Files processed: {processed_files}/{len(md_files)}")
+    print(f"  • Total chunks indexed: {total_chunks}")
+    if failed_files:
+        print(f"  • Failed files: {len(failed_files)}")
+        for filename, error in failed_files:
+            print(f"    - {filename}: {error}")
+    print(f"{'='*60}\n")
+    
+    return total_chunks
+
+
+def _process_single_markdown_file(markdown_file: Path, tenant_id: str) -> int:
+    """
+    Process a single markdown file and return number of chunks created.
+    
+    Args:
+        markdown_file: Path to the markdown file
+        tenant_id: Tenant ID for the embeddings
+    
+    Returns:
+        int: Number of chunks created
+    """
+    markdown_file = Path(markdown_file)
     
     if not markdown_file.exists():
-        print(f"❌ Markdown documentation file not found: {markdown_file}")
+        print(f"❌ Markdown file not found: {markdown_file}")
         return 0
     
     try:
         start_time = time.time()
-        print(f"\n{'='*60}")
-        print(f"Loading Markdown Documentation")
-        print(f"{'='*60}")
         print(f"\n📄 Processing: {markdown_file.name}")
         print(f"   File size: {markdown_file.stat().st_size / 1024:.2f} KB")
         
@@ -174,6 +288,15 @@ def load_markdown_docs(markdown_file: str = None, tenant_id: str = "default", mo
         if not content or len(content.strip()) < 10:
             print(f"   ⚠️  Warning: No content found in {markdown_file.name}")
             return 0
+        
+        # Extract metadata from markdown content
+        try:
+            results = extract_all_metadata(content, markdown_file.name, tenant_id)
+            total_extracted = sum(results.get(k, 0) for k in ['entities', 'keywords', 'faqs', 'synonyms', 'suggestions'] if isinstance(results.get(k), int))
+            if total_extracted > 0:
+                print(f"   🎯 Extracted {total_extracted} total items")
+        except Exception as e:
+            print(f"   ⚠️  Metadata extraction failed: {e}")
         
         # Clear old chunks for this file before loading new ones
         print(f"   🗑️  Clearing old chunks for: {markdown_file.name}")
@@ -195,19 +318,12 @@ def load_markdown_docs(markdown_file: str = None, tenant_id: str = "default", mo
         # Embed and store chunks
         print(f"   ⏳ Storing chunks in vector database...")
         embed_start = time.time()
-        embed_chunks(chunks, module, tenant_id, markdown_file.name)
+        embed_chunks(chunks, tenant_id, markdown_file.name)
         embed_time = time.time() - embed_start
         print(f"   ✅ Chunks stored in {embed_time:.2f}s")
         
         total_time = time.time() - start_time
-        print(f"\n{'='*60}")
-        print(f"Markdown Documentation Loading Summary:")
-        print(f"  • File: {markdown_file.name}")
-        print(f"  • Characters: {len(content):,}")
-        print(f"  • Chunks created: {len(chunks)}")
-        print(f"  • Module: {module}")
-        print(f"  • Total time: {total_time:.2f}s")
-        print(f"{'='*60}\n")
+        print(f"   ✅ Successfully indexed {markdown_file.name} ({len(chunks)} chunks in {total_time:.2f}s)")
         
         return len(chunks)
         
@@ -220,8 +336,8 @@ def load_markdown_docs(markdown_file: str = None, tenant_id: str = "default", mo
 
 def reload_markdown_docs(markdown_file: str = None, tenant_id: str = "default"):
     """
-    Reload the markdown documentation file.
-    Useful for refreshing the codebase knowledge when documentation is updated.
+    Reload markdown documentation file(s).
+    If no file specified, reloads ALL .md files from docs folder.
     """
     print("\n🔄 Reloading markdown documentation...")
     return load_markdown_docs(markdown_file=markdown_file, tenant_id=tenant_id)

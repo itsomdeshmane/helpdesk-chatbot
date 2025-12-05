@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Body, Depends
 from typing import Optional
 from llm.rag import search, generate_response_with_module_with_context
-from llm.classifier import detect_module
 from utils.conversation_manager import get_conversation_manager
 from utils.auth import get_current_user_optional
 import asyncio
@@ -28,7 +27,6 @@ async def chat(
     
     Returns:
         {
-            "module": str,
             "response": str,
             "session_id": str,
             "has_context": bool
@@ -84,17 +82,33 @@ async def chat(
         sys.stdout.flush()
         search_start = time.time()
         
-        # Enhance query with conversation context if available (AI-powered, generic)
+        # Enhance query with conversation context if available
         search_query = query
-        if has_context:
+        if has_context and conversation_history:
+            # Try AI-powered context resolution first
             context_summary = conv_manager.get_context_summary(session_id, query)
+            
             if context_summary:
                 # For search: append context to help find relevant docs
                 search_query = f"{context_summary} {query}"
                 print(f"   🔗 Resolved context: '{context_summary}'", flush=True)
                 print(f"   🔍 Enhanced search: '{query}' → '{search_query[:120]}...'", flush=True)
             else:
-                print(f"   ℹ️  No context resolution needed", flush=True)
+                # Fallback: Check if this is a follow-up question (short or contains pronouns)
+                follow_up_indicators = ['it', 'this', 'that', 'these', 'those', 'explain', 'more', 'detail', 'step', 'how', 'why', 'what about']
+                query_words = query.lower().split()
+                is_follow_up = len(query_words) <= 5 or any(indicator in query.lower() for indicator in follow_up_indicators)
+                
+                if is_follow_up:
+                    # Combine with previous query for better search
+                    previous_query = conversation_history[-1].get('query', '')
+                    if previous_query:
+                        search_query = f"{previous_query} {query}"
+                        print(f"   🔗 Follow-up detected, enhanced search: '{query}' → '{search_query[:120]}...'", flush=True)
+                    else:
+                        print(f"   ℹ️  No context resolution needed", flush=True)
+                else:
+                    print(f"   ℹ️  No context resolution needed", flush=True)
         
         docs_task = asyncio.create_task(asyncio.to_thread(search, search_query, tenant_id))
         
@@ -125,51 +139,20 @@ async def chat(
         
         generation_time = time.time() - generation_start
         print(f"✅ Response generation completed in {generation_time:.2f}s", flush=True)
-        print(f"   Module detected: {result.get('module', 'General')}", flush=True)
         print(f"   Response length: {len(result.get('response', ''))} characters", flush=True)
         sys.stdout.flush()
         
-        # Step 3: Extract and save context (AI-powered, generic)
-        print("\n🧠 STEP 3: Extracting conversation context...", flush=True)
-        try:
-            from utils.context_extractor import get_context_extractor
-            extractor = get_context_extractor()
-            
-            # Extract context from this Q&A pair
-            context = extractor.extract_context(
-                query=query,
-                response=result.get('response', ''),
-                module=result.get('module')
-            )
-            print(f"   ✅ Context extracted: Topic='{context.get('main_topic', 'N/A')}'", flush=True)
-        except Exception as e:
-            print(f"   ⚠️  Context extraction failed: {e}", flush=True)
-            context = None
-        
-        # Step 4: Save to conversation history
-        print("\n💾 STEP 4: Saving to conversation history...", flush=True)
+        # Step 3: Save to conversation history
+        print("\n💾 STEP 3: Saving to conversation history...", flush=True)
         total_time = time.time() - start_time
-        
-        # Prepare context data for storage
-        context_for_history = conversation_history if has_context else None
-        if context:
-            # Add extracted context to the history data
-            if not context_for_history:
-                context_for_history = []
-            # Store main_topic for easy access
-            context_data = {
-                'main_topic': context.get('main_topic'),
-                'entities': context.get('entities'),
-                'keywords': context.get('keywords')
-            }
         
         conv_manager.save_message(
             session_id=session_id,
             query=query,
             response=result.get('response', ''),
-            module=result.get('module'),
+            module="General",
             response_time=total_time,
-            context_used=context_for_history
+            context_used=conversation_history if has_context else None
         )
         print(f"   ✅ Message saved to session", flush=True)
         
@@ -182,7 +165,6 @@ async def chat(
         sys.stdout.flush()
         
         return {
-            "module": result.get("module", "General"),
             "response": result.get("response", ""),
             "session_id": session_id,
             "has_context": has_context
@@ -195,8 +177,7 @@ async def chat(
         print("="*80 + "\n", flush=True)
         sys.stdout.flush()
         return {
-            "module": "General",
-            "response": f"I apologize, but I encountered an error processing your request. Please make sure the backend services are properly configured.",
+            "response": "I apologize, but I encountered an error processing your request. Please make sure the backend services are properly configured.",
             "session_id": session_id if 'session_id' in locals() else None,
             "has_context": False
         }

@@ -107,74 +107,84 @@ def search(query: str, tenant_id: str):
                 print("   🔄 Falling back to in-memory search...")
                 # Fall through to in-memory search
         
-        # Fallback: Use in-memory document storage with improved keyword matching
-        print(f"   🔍 Using in-memory keyword search (Total docs: {len(in_memory_docs)})...")
+        # Fallback: Use smart search engine (BM25 + TF-IDF + Fuzzy)
+        print(f"   🔍 Using Smart Search Engine (Total docs: {len(in_memory_docs)})...")
         if in_memory_docs:
-            # Enhanced keyword-based search
-            query_lower = query.lower()
-            matched_docs = []
-            
-            # Extract important keywords (longer than 3 chars, ignore common words)
-            stop_words = {'what', 'where', 'when', 'which', 'who', 'how', 'give', 'show', 'tell', 'list', 'the', 'are', 'and', 'for', 'with'}
-            query_words = [w for w in query_lower.split() if len(w) > 3 and w not in stop_words]
-            
-            # Also check for key phrases
-            key_phrases = []
-            if 'submodule' in query_lower or 'sub-module' in query_lower:
-                key_phrases.append('submodule')
-            if 'module' in query_lower:
-                key_phrases.append('module')
-            if 'purchasing' in query_lower:
-                key_phrases.extend(['purchasing', 'purchase'])
-            if 'inventory' in query_lower:
-                key_phrases.append('inventory')
-            
             search_start = time.time()
-            for doc in in_memory_docs:
-                if doc.get('tenant_id') == tenant_id:
-                    text = doc.get('text', '').lower()
-                    module = doc.get('module', '')
-                    
-                    # Count keyword matches
-                    matches = sum(1 for word in query_words if word in text)
-                    
-                    # Count phrase matches (weighted higher)
-                    phrase_matches = sum(2 for phrase in key_phrases if phrase in text)
-                    
-                    # Boost if from verax_system module
-                    module_boost = 1 if module == 'verax_system' else 0
-                    
-                    total_score = matches + phrase_matches + module_boost
-                    
-                    if total_score > 0:
-                        matched_docs.append((total_score, doc['text']))
             
-            search_time = time.time() - search_start
-            print(f"   ✅ Keyword search completed in {search_time:.3f}s")
-            print(f"   📊 Scanned {len(in_memory_docs)} docs, found {len(matched_docs)} matches")
-            
-            # Sort by relevance and return top 5 for better context
-            matched_docs.sort(reverse=True, key=lambda x: x[0])
-            contexts = [doc[1] for doc in matched_docs[:5]]
-            
-            if contexts:
-                print(f"   ✅ Returning top {len(contexts)} most relevant documents")
-                return contexts
-            else:
-                print("   ⚠️  No matching documents found")
-                return ["I don't have specific documentation loaded for this topic yet."]
+            try:
+                # Use advanced multi-algorithm search
+                from llm.smart_search import get_smart_search_engine
+                
+                engine = get_smart_search_engine()
+                
+                # Build/rebuild index if needed
+                tenant_docs = [doc for doc in in_memory_docs if doc.get('tenant_id') == tenant_id]
+                if not engine.is_indexed or len(engine.documents) != len(tenant_docs):
+                    engine.build_index(in_memory_docs, tenant_id)
+                
+                # Perform multi-algorithm search
+                contexts, metadata = engine.get_context(query, top_k=5)
+                
+                search_time = time.time() - search_start
+                print(f"   ✅ Smart search completed in {search_time:.3f}s")
+                
+                if contexts:
+                    print(f"   📊 Found {len(contexts)} relevant documents")
+                    for i, meta in enumerate(metadata[:3]):
+                        print(f"      #{i+1}: Score={meta.get('score', 0):.2f}, Algorithm={meta.get('algorithm', 'N/A')}, File={meta.get('filename', 'unknown')}")
+                    return contexts
+                elif tenant_docs:
+                    # Fallback: return most content-rich docs
+                    print(f"   ⚠️  No matches, returning content-rich documents")
+                    sorted_docs = sorted(tenant_docs, key=lambda d: len(d.get('text', '')), reverse=True)
+                    return [doc['text'] for doc in sorted_docs[:5]]
+                else:
+                    return ["No documentation has been loaded for your organization yet."]
+                    
+            except ImportError as e:
+                print(f"   ⚠️  Smart search unavailable ({e}), using basic search...")
+                # Basic fallback search
+                return _basic_keyword_search(query, tenant_id, in_memory_docs)
+            except Exception as e:
+                print(f"   ❌ Smart search error: {e}")
+                return _basic_keyword_search(query, tenant_id, in_memory_docs)
         else:
             print("   ⚠️  No documents in memory")
-            return ["No documentation has been loaded yet. Please load documentation first."]
+            return ["No documentation has been loaded yet. Please upload your documents first."]
             
     except Exception as e:
         print(f"   ❌ Search error: {e}")
         return ["I encountered an error searching the documentation. Please try rephrasing your question."]
 
+
+def _basic_keyword_search(query: str, tenant_id: str, docs: list) -> list:
+    """Basic keyword search fallback"""
+    query_lower = query.lower()
+    query_words = [w for w in query_lower.split() if len(w) >= 3]
+    
+    tenant_docs = [doc for doc in docs if doc.get('tenant_id') == tenant_id]
+    scored = []
+    
+    for doc in tenant_docs:
+        text = doc.get('text', '').lower()
+        score = sum(1 for w in query_words if w in text)
+        if score > 0:
+            scored.append((score, doc['text']))
+    
+    scored.sort(reverse=True, key=lambda x: x[0])
+    
+    if scored:
+        return [s[1] for s in scored[:5]]
+    elif tenant_docs:
+        return [doc['text'] for doc in tenant_docs[:5]]
+    return ["No matching documentation found."]
+
+
 def generate_response_with_module_with_context(query: str, context: str, tenant_id: str = "default", conversation_history: list = None):
     """
     Generate a response with conversation context support.
-    Returns dict with 'response' and 'module' keys.
+    Returns dict with 'response' key.
     
     Args:
         query: Current user query
@@ -196,75 +206,63 @@ def generate_response_with_module_with_context(query: str, context: str, tenant_
                 conversation_context += f"Assistant: {msg['response'][:150]}...\n\n"
             conversation_context += "Current question:\n"
         
-        # Detect query type and check if complex
-        if enhanced_features_available:
-            query_type = detect_query_type(query)
-            is_complex, subquestions = is_complex_query(query)
-            
-            print(f"   📊 Query type: {query_type}", flush=True)
-            
-            # If query is too complex, suggest breaking it down
-            if is_complex and subquestions:
-                print(f"   ⚠️  Complex query detected, suggesting breakdown", flush=True)
-                return {
-                    "module": "General",
-                    "response": f"""Your question covers multiple topics. To give you the best answer, let's break it down:
+        # Use simple query type detection
+        query_type = "general"
+        
+        # Check if context is empty or not useful
+        context_is_empty = (
+            not context or 
+            context.strip() == "" or
+            "No relevant documents" in context or
+            "No documentation has been loaded" in context or
+            len(context.strip()) < 50
+        )
+        
+        if context_is_empty:
+            return {
+                "response": "I don't have information about this in the loaded documentation. Please check if the relevant document has been uploaded or contact support."
+            }
+        
+        # Truncate context if too long
+        max_context_chars = 8000
+        if len(context) > max_context_chars:
+            context = context[:max_context_chars] + "\n... (context truncated)"
+        
+        system_prompt = """You are a helpdesk assistant that ONLY answers from the provided documentation.
 
-{chr(10).join(f"{i+1}. {q}" for i, q in enumerate(subquestions))}
+CONTEXT RULES:
+1. Pay attention to Previous Conversation to resolve pronouns ("this", "it", "that")
+2. Stay on the SAME topic unless user explicitly changes it
 
-Which would you like me to answer first? Or feel free to ask about a specific part.""",
-                    "needs_clarification": True
-                }
-            
-            # Combine conversation context with document context
-            full_context = conversation_context + context if conversation_context else context
-            
-            # Get enhanced prompts based on query type
-            system_prompt, user_prompt = get_enhanced_prompt(query, full_context, query_type)
-        else:
-            # Fallback to basic prompt with conversation context
-            query_type = "general"
-            max_context_chars = 5000
-            if len(context) > max_context_chars:
-                context = context[:max_context_chars] + "\n... (context truncated for performance)"
-            
-            system_prompt = """You are a helpful AI assistant for the Verax ERP helpdesk system. 
+🚨 ABSOLUTE RULES - YOU MUST FOLLOW:
+1. ONLY use information EXPLICITLY written in the Documentation Context below
+2. DO NOT use ANY external knowledge, training data, or general information
+3. DO NOT make assumptions or infer anything not directly stated
+4. DO NOT provide generic answers that could apply to any system
+5. If the answer is NOT in the Documentation Context, respond EXACTLY with:
+   "I don't have information about this in the loaded documentation. Please check if the relevant document has been uploaded or contact support."
+6. Every single fact must come from the provided context
+7. Use bullet points and clear formatting for lists
+8. Be concise but complete
 
-CRITICAL CONTEXT RULES:
-1. Pay CLOSE attention to the Previous Conversation section
-2. When the user says "this module", "this feature", "it", "that", or "the module" - they are referring to topics from the previous conversation
-3. ALWAYS resolve pronouns using conversation history FIRST before answering
-4. If user asks "Who uses this?" and previous conversation was about "Workflow Module", answer about Workflow Module
-5. Stay on the SAME topic from previous conversation unless user explicitly changes topics
-
-🚨 STRICT RESPONSE RULES - MUST FOLLOW:
-1. ONLY use information from the provided Documentation Context below
-2. DO NOT use your general knowledge or training data about ERP systems
-3. DO NOT make assumptions or add information not in the context
-4. If the context doesn't contain the answer, respond with: "I don't have this information in the current documentation. Please contact support or check the complete documentation."
-5. Extract ALL relevant information from the context
-6. For lists (modules, submodules, features), include EVERYTHING mentioned in the context
-7. Use bullet points and clear formatting
-8. DO NOT hallucinate or make up information
-9. At the end, add: MODULE: [module name from context]"""
-            
-            user_prompt = f"""{conversation_context}Documentation Context:
+⚠️ NEVER MAKE UP OR GUESS INFORMATION - ONLY USE WHAT IS IN THE CONTEXT ⚠️"""
+        
+        user_prompt = f"""{conversation_context}Documentation Context (USE ONLY THIS - DO NOT ADD EXTERNAL INFO):
 {context}
 
 User Question: {query}
 
 INSTRUCTIONS:
-- If the user question contains pronouns like "this", "it", "that", "the module", look at the Previous Conversation above to understand what they are referring to
-- Answer STRICTLY using ONLY the information from the Documentation Context above
-- DO NOT use any external knowledge or general ERP information
-- If the answer is not in the context, clearly state: "I don't have this information in the current documentation."
-- Include all relevant details found in the context"""
+- Answer ONLY from the Documentation Context above
+- If pronouns like "this", "it" are used, check Previous Conversation for context
+- If the answer is NOT in the context, say "I don't have information about this in the loaded documentation"
+- DO NOT add any external knowledge
+- Format your response clearly with bullet points when listing steps or items"""
 
         print(f"   📏 Prompt size: {len(system_prompt) + len(user_prompt)} characters", flush=True)
         print(f"   ⏳ Calling OpenAI API ({GPT_MODEL})...", flush=True)
         
         # Call OpenAI ChatGPT API with optimized settings
-        # Low temperature (0.2) for factual, context-based responses
         api_start = time.time()
         response = client.chat.completions.create(
             model=GPT_MODEL,
@@ -273,8 +271,8 @@ INSTRUCTIONS:
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.2,  # Low temperature for strict, factual responses
-            max_tokens=400,
-            timeout=25
+            max_tokens=600,   # Increased for detailed answers
+            timeout=30
         )
         api_time = time.time() - api_start
         print(f"   ✅ OpenAI API responded in {api_time:.2f}s", flush=True)
@@ -282,33 +280,21 @@ INSTRUCTIONS:
         content = response.choices[0].message.content
         print(f"   📝 Received response: {len(content)} characters", flush=True)
         
-        # Parse the response to extract module and answer
-        print("   🔍 Parsing module and answer...", flush=True)
-        module = "General"
+        # Clean response - remove any MODULE: lines if present
         answer = content
-        
-        # Try to extract MODULE from response
         if "MODULE:" in content:
-            try:
-                lines = content.split('\n')
-                for line in lines:
-                    if "MODULE:" in line:
-                        module = line.replace("MODULE:", "").strip()
-                        # Remove module line from answer
-                        answer = content.replace(line, "").strip()
-                        break
-                print(f"   ✅ Successfully parsed - Module: {module}", flush=True)
-            except:
-                print("   ⚠️  Could not parse module, using default", flush=True)
+            lines = content.split('\n')
+            answer = '\n'.join(line for line in lines if not line.strip().startswith("MODULE:"))
+            answer = answer.strip()
         
-        # Save interaction to database for training (without conversation context to avoid duplication)
+        # Save interaction to database for training
         if enhanced_features_available:
             try:
                 db_manager.save_interaction(
                     tenant_id=tenant_id,
                     query=query,
                     response=answer,
-                    module=module,
+                    module="General",
                     response_time=api_time
                 )
                 print(f"   💾 Interaction saved to database", flush=True)
@@ -316,15 +302,13 @@ INSTRUCTIONS:
                 print(f"   ⚠️  Could not save to database: {db_error}", flush=True)
         
         return {
-            "module": module,
             "response": answer,
-            "query_type": query_type if 'query_type' in locals() else "general"
+            "query_type": query_type
         }
     except Exception as e:
         print(f"   ❌ Error generating response: {str(e)}")
         error_msg = f"Error generating response: {str(e)}. Please check your OPENAI_API_KEY in the .env file."
         return {
-            "module": "General",
             "response": error_msg
         }
 
@@ -417,7 +401,7 @@ def clear_chunks_by_filename(filename: str, tenant_id: str = "default"):
         print(f"      ⚠️  Error clearing chunks: {e}")
 
 
-def embed_chunks(chunks: list, module: str, tenant_id: str, filename: str):
+def embed_chunks(chunks: list, tenant_id: str, filename: str):
     """
     Create embeddings for text chunks and store them in Pinecone or in-memory storage.
     """
@@ -449,7 +433,6 @@ def embed_chunks(chunks: list, module: str, tenant_id: str, filename: str):
                 vector_id = f"{tenant_id}_{filename}_{i}"
                 metadata = {
                     "text": chunk,
-                    "module": module,
                     "tenant_id": tenant_id,
                     "filename": filename,
                     "chunk_id": i
@@ -472,7 +455,6 @@ def embed_chunks(chunks: list, module: str, tenant_id: str, filename: str):
             for i, chunk in enumerate(chunks):
                 doc = {
                     "text": chunk,
-                    "module": module,
                     "tenant_id": tenant_id,
                     "filename": filename,
                     "chunk_id": i
@@ -489,7 +471,6 @@ def embed_chunks(chunks: list, module: str, tenant_id: str, filename: str):
             for i, chunk in enumerate(chunks):
                 doc = {
                     "text": chunk,
-                    "module": module,
                     "tenant_id": tenant_id,
                     "filename": filename,
                     "chunk_id": i

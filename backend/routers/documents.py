@@ -10,7 +10,7 @@ import asyncio
 
 router = APIRouter(tags=["Documents"])
 
-async def process_document_async(file_content: bytes, filename: str, module: str, tenant_id: str):
+async def process_document_async(file_content: bytes, filename: str, tenant_id: str):
     """Process document in async manner to avoid blocking"""
     def extract_text():
         import io
@@ -33,12 +33,12 @@ async def process_document_async(file_content: bytes, filename: str, module: str
         # Run chunking in thread pool
         chunks = await asyncio.to_thread(chunk_text, content)
         # Run embedding in thread pool
-        await asyncio.to_thread(embed_chunks, chunks, module, tenant_id, filename)
+        await asyncio.to_thread(embed_chunks, chunks, tenant_id, filename)
         return len(chunks)
     return 0
 
 @router.post("/upload", summary="Upload a document")
-async def upload_document(file: UploadFile, module: str = Form(...), tenant_id: str = Form(...)):
+async def upload_document(file: UploadFile, tenant_id: str = Form("default")):
     """Upload and process document asynchronously to avoid blocking the server"""
     
     # Validate file type first
@@ -50,7 +50,7 @@ async def upload_document(file: UploadFile, module: str = Form(...), tenant_id: 
     
     # Process document asynchronously (non-blocking)
     try:
-        chunk_count = await process_document_async(file_content, file.filename, module, tenant_id)
+        chunk_count = await process_document_async(file_content, file.filename, tenant_id)
         return {
             "status": "indexed",
             "filename": file.filename,
@@ -63,14 +63,14 @@ async def upload_document(file: UploadFile, module: str = Form(...), tenant_id: 
         }
 
 @router.post("/reload", summary="Reload all documents")
-async def reload_documents(background_tasks: BackgroundTasks, tenant_id: str = Form("default"), module: str = Form("general")):
+async def reload_documents(background_tasks: BackgroundTasks, tenant_id: str = Form("default")):
     """
     Reload all documentation files from the docs folder in background.
     Non-blocking - returns immediately while docs load in background.
     """
     try:
         # Run reload in background to avoid blocking
-        background_tasks.add_task(reload_docs, tenant_id=tenant_id, module=module)
+        background_tasks.add_task(reload_docs, tenant_id=tenant_id)
         return {
             "status": "processing",
             "message": "Documentation reload started in background"
@@ -81,8 +81,8 @@ async def reload_documents(background_tasks: BackgroundTasks, tenant_id: str = F
 @router.post("/reload-markdown", summary="Reload markdown documentation")
 async def reload_markdown_documentation(background_tasks: BackgroundTasks, tenant_id: str = Form("default")):
     """
-    Reload the Verax markdown documentation with structure-aware chunking.
-    This ensures module lists, permissions, and hierarchical content stay together.
+    Reload all markdown documentation with structure-aware chunking.
+    This ensures lists, permissions, and hierarchical content stay together.
     Non-blocking - returns immediately while docs load in background.
     """
     try:

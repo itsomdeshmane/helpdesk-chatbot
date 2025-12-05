@@ -84,7 +84,7 @@ class ConversationManager:
                 
                 # Get recent messages
                 cursor = conn.execute(
-                    """SELECT query, response, module, created_at, message_order
+                    """SELECT query, response, created_at, message_order
                        FROM chat_interactions
                        WHERE conversation_id = %s
                        ORDER BY message_order DESC
@@ -102,7 +102,6 @@ class ConversationManager:
                     msg_data = {
                         'query': msg['query'],
                         'response': msg['response'],
-                        'module': msg['module'],
                         'timestamp': str(msg['created_at'])
                     }
                     
@@ -137,7 +136,7 @@ class ConversationManager:
             session_id: Session identifier
             query: User query
             response: Bot response
-            module: Detected module
+            module: Deprecated - kept for compatibility
             response_time: Response generation time
             context_used: Previous messages used as context
         
@@ -178,13 +177,13 @@ class ConversationManager:
                 import json
                 context_json = json.dumps(context_used) if context_used else None
                 
-                # Save message
+                # Save message (module field kept for DB compatibility but always null)
                 conn.execute(
                     """INSERT INTO chat_interactions
-                       (conversation_id, tenant_id, query, response, module, 
+                       (conversation_id, tenant_id, query, response, 
                         response_time, message_order, context_used)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-                    (conversation_id, tenant_id, query, response, module, 
+                       VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                    (conversation_id, tenant_id, query, response, 
                      response_time, message_order, context_json)
                 )
                 
@@ -293,11 +292,6 @@ class ConversationManager:
             
         except Exception as e:
             print(f"⚠️  Error getting context summary: {e}")
-            # Fallback: Use module name if available
-            last_msg = history[-1]
-            module = last_msg.get('module')
-            if module and module not in ['General', 'Unknown']:
-                return module
             return ""
     
     def check_session_valid(self, session_id: str) -> bool:
