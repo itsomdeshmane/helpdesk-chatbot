@@ -1,59 +1,66 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import ChatWindow from './components/ChatWindow';
+import Login from './components/Login';
+import authState from './services/auth.state';
+import './App.css';
 
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Subscribe to authentication state
+    const authSub = authState.isAuthenticated$.subscribe(isAuth => {
+      setIsAuthenticated(isAuth);
+      setLoading(false);
+    });
+
+    const userSub = authState.user$.subscribe(userData => {
+      setUser(userData);
+    });
+
+    return () => {
+      authSub.unsubscribe();
+      userSub.unsubscribe();
+    };
+  }, []);
+
+  const handleLogout = () => {
+    if (window.confirm('Are you sure you want to logout?')) {
+      authState.logout();
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="loading-screen">
+        <div className="loading-spinner"></div>
+        <p>Loading...</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Login onSuccess={() => setLoading(false)} />;
+  }
+
   return (
-    <div style={{ 
-      height: '100vh', 
-      display: 'flex', 
-      flexDirection: 'column',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      overflow: 'hidden'
-    }}>
-      <header style={{
-        background: 'rgba(255, 255, 255, 0.95)',
-        backdropFilter: 'blur(10px)',
-        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)',
-        padding: '24px 32px',
-        textAlign: 'center',
-        borderBottom: '1px solid rgba(102, 126, 234, 0.2)'
-      }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '12px'
-        }}>
-          <div style={{
-            width: '48px',
-            height: '48px',
-            borderRadius: '12px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '24px',
-            boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)'
-          }}>
-            🤖
+    <div className="app-container">
+      <header className="app-header">
+        <div className="header-content">
+          <div className="header-left">
+            <div className="header-icon">💬</div>
+            <h1>AI Assistant</h1>
           </div>
-          <div>
-            <h1 style={{
-              margin: '0',
-              fontSize: '28px',
-              fontWeight: '700',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text'
-            }}>AI Helpdesk Assistant</h1>
-            <p style={{
-              margin: '4px 0 0 0',
-              fontSize: '13px',
-              color: '#64748b',
-              fontWeight: '500'
-            }}>Powered by advanced AI technology</p>
+          <div className="header-right">
+            <div className="user-info">
+              <span className="user-name">👤 {user?.username}</span>
+              <span className="user-role">{user?.role}</span>
+            </div>
+            <button onClick={handleLogout} className="logout-button">
+              🚪 Logout
+            </button>
           </div>
         </div>
       </header>

@@ -1,8 +1,41 @@
--- MySQL Schema for Chat History and Training Database
+-- ============================================================================
+-- COMPLETE DATABASE SCHEMA FOR HELPDESK CHATBOT
+-- ============================================================================
+-- This file contains the complete database schema with all tables
+-- Safe to run multiple times (uses IF NOT EXISTS)
+-- Last Updated: December 3, 2025
+-- ============================================================================
 
+-- Create database
 CREATE DATABASE IF NOT EXISTS helpdesk_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 USE helpdesk_db;
+
+-- ============================================================================
+-- SECTION 1: AUTHENTICATION & USERS
+-- ============================================================================
+
+-- Users table for authentication and authorization
+CREATE TABLE IF NOT EXISTS users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    full_name VARCHAR(100),
+    role ENUM('admin', 'user', 'viewer') DEFAULT 'user',
+    is_active BOOLEAN DEFAULT TRUE,
+    tenant_id VARCHAR(50) DEFAULT 'default',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    last_login TIMESTAMP NULL,
+    INDEX idx_username (username),
+    INDEX idx_email (email),
+    INDEX idx_tenant_id (tenant_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================================
+-- SECTION 2: CONVERSATION MANAGEMENT
+-- ============================================================================
 
 -- Conversations table (tracks sessions)
 CREATE TABLE IF NOT EXISTS conversations (
@@ -21,10 +54,10 @@ CREATE TABLE IF NOT EXISTS conversations (
     INDEX idx_expires (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Chat interactions table (now linked to conversations)
+-- Chat interactions table (linked to conversations)
 CREATE TABLE IF NOT EXISTS chat_interactions (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    conversation_id INT NOT NULL COMMENT 'Links to conversations table',
+    conversation_id INT DEFAULT NULL COMMENT 'Links to conversations table',
     tenant_id VARCHAR(255) NOT NULL,
     query TEXT NOT NULL,
     response TEXT NOT NULL,
@@ -37,9 +70,60 @@ CREATE TABLE IF NOT EXISTS chat_interactions (
     INDEX idx_conversation (conversation_id),
     INDEX idx_tenant_created (tenant_id, created_at),
     INDEX idx_module (module),
-    INDEX idx_message_order (conversation_id, message_order),
+    INDEX idx_message_order (conversation_id, message_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================================
+-- SECTION 3: AI-POWERED CONTEXT TRACKING
+-- ============================================================================
+
+-- Conversation context tracking table (AI-extracted entities and topics)
+CREATE TABLE IF NOT EXISTS conversation_context (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    conversation_id INT NOT NULL,
+    message_order INT NOT NULL COMMENT 'Which message this context is from',
+    
+    -- Extracted entities/topics (AI-generated)
+    main_topic VARCHAR(500) DEFAULT NULL COMMENT 'Primary topic/entity discussed',
+    entities JSON DEFAULT NULL COMMENT 'All entities mentioned (JSON array)',
+    keywords JSON DEFAULT NULL COMMENT 'Important keywords (JSON array)',
+    
+    -- Context type classification
+    context_type VARCHAR(50) DEFAULT 'general' COMMENT 'module, entity, process, feature, etc.',
+    confidence FLOAT DEFAULT 0.0 COMMENT 'AI confidence score (0-1)',
+    
+    -- Metadata
+    extracted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    INDEX idx_conversation_order (conversation_id, message_order),
+    INDEX idx_main_topic (main_topic),
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Context resolution cache (speeds up pronoun resolution)
+CREATE TABLE IF NOT EXISTS context_resolution_cache (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    conversation_id INT NOT NULL,
+    
+    -- What the user said
+    pronoun VARCHAR(100) NOT NULL COMMENT 'it, this, that, the module, etc.',
+    query_text TEXT NOT NULL COMMENT 'Full query containing the pronoun',
+    
+    -- What it refers to
+    resolved_entity VARCHAR(500) NOT NULL COMMENT 'What the pronoun refers to',
+    resolved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- TTL for cache
+    expires_at TIMESTAMP DEFAULT NULL,
+    
+    INDEX idx_conversation_pronoun (conversation_id, pronoun),
+    INDEX idx_expires (expires_at),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================================
+-- SECTION 4: KNOWLEDGE BASE & FAQ
+-- ============================================================================
 
 -- FAQ questions table
 CREATE TABLE IF NOT EXISTS faq_questions (
@@ -63,6 +147,10 @@ CREATE TABLE IF NOT EXISTS response_patterns (
     success_rate FLOAT DEFAULT 0.0,
     usage_count INT DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================================
+-- SECTION 5: ERP MODULE & ENTITY MANAGEMENT
+-- ============================================================================
 
 -- Query type patterns table for dynamic keyword detection
 CREATE TABLE IF NOT EXISTS query_type_patterns (
@@ -93,6 +181,27 @@ CREATE TABLE IF NOT EXISTS erp_modules (
     UNIQUE KEY unique_module_code (module_code),
     INDEX idx_active_priority (is_active, priority DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ERP entities table for entity recognition in queries
+CREATE TABLE IF NOT EXISTS erp_entities (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    entity_key VARCHAR(50) NOT NULL COMMENT 'Lowercase key for matching (e.g., item, customer)',
+    entity_name VARCHAR(100) NOT NULL COMMENT 'Display name (e.g., Item, Customer)',
+    entity_type VARCHAR(50) DEFAULT 'general' COMMENT 'Type: transactional, master, reference',
+    description TEXT COMMENT 'Description of the entity',
+    related_modules TEXT COMMENT 'Comma-separated list of related modules',
+    is_active BOOLEAN DEFAULT TRUE,
+    priority INT DEFAULT 1 COMMENT 'Matching priority',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_entity_key (entity_key),
+    INDEX idx_active_priority (is_active, priority DESC),
+    INDEX idx_entity_type (entity_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================================
+-- SECTION 6: QUESTION GENERATION & CLARITY
+-- ============================================================================
 
 -- Generated questions table for level-wise module questions
 CREATE TABLE IF NOT EXISTS generated_questions (
@@ -125,22 +234,9 @@ CREATE TABLE IF NOT EXISTS query_clarifications (
     INDEX idx_resolved (was_resolved)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ERP entities table for entity recognition in queries
-CREATE TABLE IF NOT EXISTS erp_entities (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    entity_key VARCHAR(50) NOT NULL COMMENT 'Lowercase key for matching (e.g., item, customer)',
-    entity_name VARCHAR(100) NOT NULL COMMENT 'Display name (e.g., Item, Customer)',
-    entity_type VARCHAR(50) DEFAULT 'general' COMMENT 'Type: transactional, master, reference',
-    description TEXT COMMENT 'Description of the entity',
-    related_modules TEXT COMMENT 'Comma-separated list of related modules',
-    is_active BOOLEAN DEFAULT TRUE,
-    priority INT DEFAULT 1 COMMENT 'Matching priority',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_entity_key (entity_key),
-    INDEX idx_active_priority (is_active, priority DESC),
-    INDEX idx_entity_type (entity_type)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- ============================================================================
+-- SECTION 7: DEFAULT DATA
+-- ============================================================================
 
 -- Insert default ERP entities
 INSERT INTO erp_entities (entity_key, entity_name, entity_type, description, related_modules, priority) VALUES
@@ -161,6 +257,13 @@ INSERT INTO erp_entities (entity_key, entity_name, entity_type, description, rel
 ('warehouse', 'Warehouse', 'master', 'Warehouse location', 'Inventory,Warehouse', 2),
 ('payment', 'Payment', 'transactional', 'Payment transaction', 'Finance,Sales,Purchasing', 2),
 ('account', 'Account', 'master', 'Financial account', 'Finance,Accounting', 2),
-('report', 'Report', 'reference', 'System report or analytics', 'Reporting,All Modules', 2);
+('report', 'Report', 'reference', 'System report or analytics', 'Reporting,All Modules', 2)
+ON DUPLICATE KEY UPDATE
+    entity_name = VALUES(entity_name),
+    description = VALUES(description);
+
+-- ============================================================================
+-- END OF SCHEMA
+-- ============================================================================
 
 

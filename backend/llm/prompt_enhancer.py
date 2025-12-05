@@ -45,12 +45,17 @@ def get_enhanced_prompt(query: str, context: str, query_type: str = None) -> tup
     
     base_instructions = """You are a helpful AI assistant for the Verax ERP helpdesk system.
 
-IMPORTANT RULES:
-1. Answer using the information from the provided documentation context
-2. Extract ALL relevant details from the documentation
-3. For lists, include EVERYTHING mentioned in the context - don't skip items
-4. Use simple, clear language that anyone can understand
-5. If the context has the information, provide a complete answer
+🚨 CRITICAL RULES - MUST FOLLOW STRICTLY:
+1. ONLY use information from the provided documentation context below
+2. DO NOT use your general knowledge or training data
+3. DO NOT make assumptions or infer information not explicitly stated in the context
+4. If the context doesn't contain the answer, respond with: "I don't have this information in the current documentation. Please contact support or check the complete documentation."
+5. Extract ALL relevant details ONLY from the provided documentation
+6. For lists, include EVERYTHING mentioned in the context - don't skip items
+7. Use simple, clear language that anyone can understand
+8. DO NOT add information from outside the provided context, even if you know it
+
+⚠️ NEVER HALLUCINATE OR MAKE UP INFORMATION ⚠️
 
 FORMATTING RULES:
 """
@@ -200,7 +205,12 @@ Classify the ERP module at the end as: MODULE: [module name]"""
 
 User Question: {query}
 
-Provide a complete answer based on the documentation above. Include all relevant details from the context."""
+INSTRUCTIONS:
+- Answer STRICTLY using ONLY the information from the Documentation Context above
+- DO NOT use any external knowledge or general information
+- If the answer is not in the context, clearly state: "I don't have this information in the current documentation."
+- Include all relevant details found in the context
+- Do not add, assume, or infer anything beyond what is explicitly stated in the context"""
 
     return system_prompt, user_prompt
 

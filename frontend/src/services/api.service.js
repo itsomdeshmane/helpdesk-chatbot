@@ -4,6 +4,7 @@
  */
 import axios from 'axios';
 import { BehaviorSubject } from 'rxjs';
+import authService from './auth.service';
 
 // API Configuration
 const API_CONFIG = {
@@ -28,6 +29,13 @@ const requestState$ = new BehaviorSubject({
 apiClient.interceptors.request.use(
   (config) => {
     console.log('🌐 API Request:', config.method.toUpperCase(), config.url);
+    
+    // Add auth token if available
+    const token = authService.getToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    
     const currentState = requestState$.getValue();
     requestState$.next({
       loading: true,
@@ -55,6 +63,16 @@ apiClient.interceptors.response.use(
   },
   (error) => {
     console.error('❌ Response Error:', error.response?.status, error.message);
+    
+    // Handle 401 Unauthorized - token expired or invalid
+    if (error.response?.status === 401) {
+      console.log('🔐 Authentication required - redirecting to login');
+      authService.logout();
+      // Don't redirect if already on login page
+      if (!window.location.pathname.includes('/login')) {
+        window.location.href = '/login';
+      }
+    }
     
     let errorMessage = 'An unknown error occurred';
     
@@ -89,14 +107,19 @@ class ApiService {
   /**
    * Send chat query
    */
-  async sendMessage(query, tenantId = 'default') {
+  async sendMessage(query, tenantId = 'default', sessionId = null) {
     try {
-      console.log('💬 Sending message:', { query: query.substring(0, 50) + '...', tenantId });
+      console.log('💬 Sending message:', { 
+        query: query.substring(0, 50) + '...', 
+        tenantId,
+        sessionId: sessionId || 'NEW'
+      });
       const startTime = Date.now();
       
       const response = await apiClient.post('/chat/query', {
         query: query,
-        tenant_id: tenantId
+        tenant_id: tenantId,
+        session_id: sessionId
       });
       
       const duration = Date.now() - startTime;

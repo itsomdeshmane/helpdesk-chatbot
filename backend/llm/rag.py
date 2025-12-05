@@ -171,50 +171,30 @@ def search(query: str, tenant_id: str):
         print(f"   ❌ Search error: {e}")
         return ["I encountered an error searching the documentation. Please try rephrasing your question."]
 
-def generate_response(query: str, context: str):
+def generate_response_with_module_with_context(query: str, context: str, tenant_id: str = "default", conversation_history: list = None):
     """
-    Generate a response using OpenAI's ChatGPT model based on the query and context.
-    """
-    try:
-        # Create the prompt with context
-        system_prompt = """You are a helpful AI assistant for the Verax ERP helpdesk system. 
-Answer questions using the provided documentation context.
-IMPORTANT: Use ONLY the information from the documentation - do not add external knowledge.
-If the context has the information, provide a complete answer.
-If the context is missing critical information, say "I don't have complete information about this in the documentation."
-Always provide complete lists when asked for modules, submodules, or features."""
-
-        user_prompt = f"""Documentation Context:
-{context}
-
-User Question: {query}
-
-Answer based on the documentation context above. Extract all relevant information from the context."""
-
-        # Call OpenAI ChatGPT API
-        response = client.chat.completions.create(
-            model=GPT_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.7,
-            max_tokens=500
-        )
-        
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"Error generating response: {str(e)}. Please check your OPENAI_API_KEY in the .env file."
-
-def generate_response_with_module(query: str, context: str, tenant_id: str = "default"):
-    """
-    Generate a response AND detect the module in a single OpenAI call for better performance.
+    Generate a response with conversation context support.
     Returns dict with 'response' and 'module' keys.
-    Optimized to avoid blocking with enhanced formatting.
+    
+    Args:
+        query: Current user query
+        context: Document context from search
+        tenant_id: Tenant identifier
+        conversation_history: List of previous messages in conversation
     """
     import time
     try:
-        print("   🧠 Analyzing query type...", flush=True)
+        print("   🧠 Analyzing query with conversation context...", flush=True)
+        
+        # Build conversation context if available
+        conversation_context = ""
+        if conversation_history and len(conversation_history) > 0:
+            print(f"   📜 Using {len(conversation_history)} previous messages for context", flush=True)
+            conversation_context = "\n\nPrevious conversation:\n"
+            for i, msg in enumerate(conversation_history[-3:], 1):  # Last 3 messages
+                conversation_context += f"User: {msg['query']}\n"
+                conversation_context += f"Assistant: {msg['response'][:150]}...\n\n"
+            conversation_context += "Current question:\n"
         
         # Detect query type and check if complex
         if enhanced_features_available:
@@ -236,36 +216,55 @@ Which would you like me to answer first? Or feel free to ask about a specific pa
                     "needs_clarification": True
                 }
             
+            # Combine conversation context with document context
+            full_context = conversation_context + context if conversation_context else context
+            
             # Get enhanced prompts based on query type
-            system_prompt, user_prompt = get_enhanced_prompt(query, context, query_type)
+            system_prompt, user_prompt = get_enhanced_prompt(query, full_context, query_type)
         else:
-            # Fallback to basic prompt
+            # Fallback to basic prompt with conversation context
             query_type = "general"
-            max_context_chars = 5000  # Increased to capture more module info
+            max_context_chars = 5000
             if len(context) > max_context_chars:
                 context = context[:max_context_chars] + "\n... (context truncated for performance)"
             
             system_prompt = """You are a helpful AI assistant for the Verax ERP helpdesk system. 
 
-IMPORTANT RULES:
-1. Answer using the provided documentation context
-2. Extract ALL relevant information from the context
-3. For lists (modules, submodules, features), include EVERYTHING mentioned in the context
-4. Use bullet points and clear formatting
-5. If context has partial info, use what's available and note if anything seems incomplete
-6. At the end, add: MODULE: [module name from context]"""
+CRITICAL CONTEXT RULES:
+1. Pay CLOSE attention to the Previous Conversation section
+2. When the user says "this module", "this feature", "it", "that", or "the module" - they are referring to topics from the previous conversation
+3. ALWAYS resolve pronouns using conversation history FIRST before answering
+4. If user asks "Who uses this?" and previous conversation was about "Workflow Module", answer about Workflow Module
+5. Stay on the SAME topic from previous conversation unless user explicitly changes topics
+
+🚨 STRICT RESPONSE RULES - MUST FOLLOW:
+1. ONLY use information from the provided Documentation Context below
+2. DO NOT use your general knowledge or training data about ERP systems
+3. DO NOT make assumptions or add information not in the context
+4. If the context doesn't contain the answer, respond with: "I don't have this information in the current documentation. Please contact support or check the complete documentation."
+5. Extract ALL relevant information from the context
+6. For lists (modules, submodules, features), include EVERYTHING mentioned in the context
+7. Use bullet points and clear formatting
+8. DO NOT hallucinate or make up information
+9. At the end, add: MODULE: [module name from context]"""
             
-            user_prompt = f"""Documentation Context:
+            user_prompt = f"""{conversation_context}Documentation Context:
 {context}
 
 User Question: {query}
 
-Provide a complete answer based on the documentation context. Extract all relevant details."""
+INSTRUCTIONS:
+- If the user question contains pronouns like "this", "it", "that", "the module", look at the Previous Conversation above to understand what they are referring to
+- Answer STRICTLY using ONLY the information from the Documentation Context above
+- DO NOT use any external knowledge or general ERP information
+- If the answer is not in the context, clearly state: "I don't have this information in the current documentation."
+- Include all relevant details found in the context"""
 
         print(f"   📏 Prompt size: {len(system_prompt) + len(user_prompt)} characters", flush=True)
         print(f"   ⏳ Calling OpenAI API ({GPT_MODEL})...", flush=True)
         
         # Call OpenAI ChatGPT API with optimized settings
+        # Low temperature (0.2) for factual, context-based responses
         api_start = time.time()
         response = client.chat.completions.create(
             model=GPT_MODEL,
@@ -273,9 +272,9 @@ Provide a complete answer based on the documentation context. Extract all releva
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            temperature=0.7,
-            max_tokens=400,  # Reduced from 500 for faster responses
-            timeout=25  # 25 second timeout
+            temperature=0.2,  # Low temperature for strict, factual responses
+            max_tokens=400,
+            timeout=25
         )
         api_time = time.time() - api_start
         print(f"   ✅ OpenAI API responded in {api_time:.2f}s", flush=True)
@@ -302,7 +301,7 @@ Provide a complete answer based on the documentation context. Extract all releva
             except:
                 print("   ⚠️  Could not parse module, using default", flush=True)
         
-        # Save interaction to database for training
+        # Save interaction to database for training (without conversation context to avoid duplication)
         if enhanced_features_available:
             try:
                 db_manager.save_interaction(
@@ -328,6 +327,17 @@ Provide a complete answer based on the documentation context. Extract all releva
             "module": "General",
             "response": error_msg
         }
+
+
+def generate_response_with_module(query: str, context: str, tenant_id: str = "default"):
+    """
+    Generate a response AND detect the module in a single OpenAI call for better performance.
+    Returns dict with 'response' and 'module' keys.
+    Optimized to avoid blocking with enhanced formatting.
+    
+    NOTE: This is the legacy function. Use generate_response_with_module_with_context for conversation support.
+    """
+    return generate_response_with_module_with_context(query, context, tenant_id, None)
 
 def check_file_exists_in_db(filename: str, tenant_id: str = "default"):
     """

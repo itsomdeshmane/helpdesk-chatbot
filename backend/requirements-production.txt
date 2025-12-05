@@ -1,0 +1,35 @@
+# Production Dependencies - Core Features Only
+# Install with: pip install -r requirements-production.txt
+
+# Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Document Processing
+python-docx==1.1.0
+pdfplumber==0.10.3
+openpyxl==3.1.2
+
+# AI & Vector Database
+pinecone>=5.0.0
+openai==1.54.4
+
+# HTTP & Utilities
+httpx==0.27.2
+python-dotenv==1.0.0
+python-multipart==0.0.6
+
+# Database
+mysql-connector-python==8.2.0
+
+# Production Server (recommended)
+gunicorn==21.2.0
+
+# Monitoring & Logging (optional but recommended)
+# sentry-sdk[fastapi]==1.40.0
+# python-json-logger==2.0.7
+
+
+
+
+

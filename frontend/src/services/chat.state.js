@@ -13,6 +13,7 @@ class ChatStateService {
     this.loading$ = new BehaviorSubject(false);
     this.error$ = new BehaviorSubject(null);
     this.tenantId$ = new BehaviorSubject('default');
+    this.sessionId$ = new BehaviorSubject(null); // Track session ID
     
     // Load initial state from local storage
     this.loadFromStorage();
@@ -89,11 +90,18 @@ class ChatStateService {
       };
       this.addMessage(userMessage);
 
-      // Send to API
+      // Send to API with session ID for conversation continuity
       const tenantId = this.tenantId$.getValue();
-      const result = await apiService.sendMessage(query, tenantId);
+      const sessionId = this.sessionId$.getValue();
+      const result = await apiService.sendMessage(query, tenantId, sessionId);
 
       if (result.success) {
+        // Store session ID for conversation continuity
+        if (result.data.session_id) {
+          this.sessionId$.next(result.data.session_id);
+          console.log('🔐 Session ID stored:', result.data.session_id);
+        }
+
         // Add assistant response
         const assistantMessage = {
           role: 'assistant',
@@ -101,7 +109,8 @@ class ChatStateService {
           module: result.data.module,
           queryType: result.data.query_type,
           duration: result.duration,
-          needsClarification: result.data.needs_clarification
+          needsClarification: result.data.needs_clarification,
+          hasContext: result.data.has_context
         };
         this.addMessage(assistantMessage);
       } else {
@@ -135,7 +144,8 @@ class ChatStateService {
     this.messages$.next([]);
     localStorageService.clearMessages();
     this.error$.next(null);
-    console.log('🗑️ Cleared all messages');
+    this.sessionId$.next(null); // Clear session when clearing messages
+    console.log('🗑️ Cleared all messages and session');
   }
 
   /**

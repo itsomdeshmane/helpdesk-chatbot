@@ -186,12 +186,61 @@ class DatabaseManager:
                 pattern_template TEXT NOT NULL,
                 success_rate FLOAT DEFAULT 0.0,
                 usage_count INT DEFAULT 0
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""",
+            
+            """CREATE TABLE IF NOT EXISTS erp_entities (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                entity_key VARCHAR(50) NOT NULL,
+                entity_name VARCHAR(100) NOT NULL,
+                entity_type VARCHAR(50) DEFAULT 'general',
+                description TEXT,
+                related_modules TEXT,
+                is_active BOOLEAN DEFAULT TRUE,
+                priority INT DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_entity_key (entity_key),
+                INDEX idx_active_priority (is_active, priority DESC),
+                INDEX idx_entity_type (entity_type)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"""
         ]
         
         cursor = conn._conn.cursor()
         for table_sql in tables:
             cursor.execute(table_sql)
+        
+        # Insert default entities if table is empty
+        cursor.execute("SELECT COUNT(*) as count FROM erp_entities")
+        result = cursor.fetchone()
+        if result[0] == 0:
+            default_entities = [
+                ('item', 'Item', 'master', 'Product or service item in the system', 'Inventory,Purchasing,Sales,Manufacturing', 1),
+                ('customer', 'Customer', 'master', 'Customer or client information', 'Sales,CRM,Finance', 1),
+                ('vendor', 'Vendor', 'master', 'Supplier or vendor information', 'Purchasing,Finance', 1),
+                ('supplier', 'Supplier', 'master', 'Supplier information (synonym for vendor)', 'Purchasing,Finance', 1),
+                ('invoice', 'Invoice', 'transactional', 'Sales or purchase invoice', 'Finance,Sales,Purchasing', 1),
+                ('order', 'Order', 'transactional', 'Sales or purchase order', 'Sales,Purchasing', 1),
+                ('purchase', 'Purchase Order', 'transactional', 'Purchase order document', 'Purchasing,Finance', 1),
+                ('sale', 'Sales Order', 'transactional', 'Sales order document', 'Sales,Finance', 1),
+                ('employee', 'Employee', 'master', 'Employee information', 'HR,Payroll', 1),
+                ('user', 'User', 'master', 'System user account', 'General,Administration', 1),
+                ('inventory', 'Inventory', 'reference', 'Stock and inventory items', 'Inventory,Warehouse', 1),
+                ('stock', 'Stock', 'reference', 'Inventory stock levels', 'Inventory,Warehouse', 1),
+                ('product', 'Product', 'master', 'Product information', 'Sales,Inventory,Manufacturing', 1),
+                ('quotation', 'Quotation', 'transactional', 'Sales quotation or quote', 'Sales,CRM', 2),
+                ('warehouse', 'Warehouse', 'master', 'Warehouse location', 'Inventory,Warehouse', 2),
+                ('payment', 'Payment', 'transactional', 'Payment transaction', 'Finance,Sales,Purchasing', 2),
+                ('account', 'Account', 'master', 'Financial account', 'Finance,Accounting', 2),
+                ('report', 'Report', 'reference', 'System report or analytics', 'Reporting,All Modules', 2),
+            ]
+            
+            insert_query = """INSERT INTO erp_entities 
+                (entity_key, entity_name, entity_type, description, related_modules, priority) 
+                VALUES (%s, %s, %s, %s, %s, %s)"""
+            
+            for entity_data in default_entities:
+                cursor.execute(insert_query, entity_data)
+        
         cursor.close()
         conn.commit()
         print("✅ Tables created manually", flush=True)
@@ -296,6 +345,94 @@ class DatabaseManager:
         except Error as e:
             print(f"Error getting module stats: {e}", flush=True)
             return []
+    
+    def get_erp_entities(self, active_only: bool = True):
+        """
+        Get all ERP entities from database for entity recognition
+        Returns dict mapping entity_key to entity_name
+        """
+        try:
+            with self.get_connection() as conn:
+                query = "SELECT entity_key, entity_name, entity_type, related_modules FROM erp_entities"
+                params = []
+                
+                if active_only:
+                    query += " WHERE is_active = TRUE"
+                
+                query += " ORDER BY priority DESC, entity_key ASC"
+                
+                cursor = conn.execute(query, tuple(params))
+                results = cursor.fetchall()
+                
+                # Return as dictionary for easy lookup
+                entities_dict = {}
+                for row in results:
+                    entities_dict[row['entity_key']] = row['entity_name']
+                
+                return entities_dict
+        except Error as e:
+            print(f"Error getting ERP entities: {e}", flush=True)
+            return {}
+    
+    def get_entity_details(self, entity_key: str):
+        """Get detailed information about a specific entity"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.execute(
+                    """SELECT entity_key, entity_name, entity_type, description, 
+                              related_modules, priority 
+                       FROM erp_entities 
+                       WHERE entity_key = %s AND is_active = TRUE""",
+                    (entity_key,)
+                )
+                return cursor.fetchone()
+        except Error as e:
+            print(f"Error getting entity details: {e}", flush=True)
+            return None
+    
+    def add_erp_entity(self, entity_key: str, entity_name: str, entity_type: str = 'general',
+                       description: str = None, related_modules: str = None, priority: int = 1):
+        """Add a new ERP entity to the database"""
+        try:
+            with self.get_connection() as conn:
+                conn.execute(
+                    """INSERT INTO erp_entities 
+                       (entity_key, entity_name, entity_type, description, related_modules, priority) 
+                       VALUES (%s, %s, %s, %s, %s, %s)""",
+                    (entity_key, entity_name, entity_type, description, related_modules, priority)
+                )
+                conn.commit()
+                return True
+        except Error as e:
+            print(f"Error adding ERP entity: {e}", flush=True)
+            return False
+    
+    def update_erp_entity(self, entity_key: str, **kwargs):
+        """Update an existing ERP entity"""
+        try:
+            # Build dynamic UPDATE query
+            allowed_fields = ['entity_name', 'entity_type', 'description', 'related_modules', 'priority', 'is_active']
+            updates = []
+            values = []
+            
+            for field, value in kwargs.items():
+                if field in allowed_fields:
+                    updates.append(f"{field} = %s")
+                    values.append(value)
+            
+            if not updates:
+                return False
+            
+            values.append(entity_key)
+            
+            with self.get_connection() as conn:
+                query = f"UPDATE erp_entities SET {', '.join(updates)} WHERE entity_key = %s"
+                conn.execute(query, tuple(values))
+                conn.commit()
+                return True
+        except Error as e:
+            print(f"Error updating ERP entity: {e}", flush=True)
+            return False
 
 # Singleton instance
 db_manager = DatabaseManager()

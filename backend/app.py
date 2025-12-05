@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import chat, documents, analytics
+from routers import chat, documents, analytics, auth
 from ingestion.docs_loader import load_docs_from_folder, load_markdown_docs
 import asyncio
 import threading
@@ -26,6 +26,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router, prefix="/auth")
 app.include_router(chat.router, prefix="/chat")
 app.include_router(documents.router, prefix="/documents")
 app.include_router(analytics.router, prefix="/analytics")

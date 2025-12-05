@@ -1,0 +1,160 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║              DATABASE CLEAR SCRIPTS - QUICK REFERENCE                ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+📍 Location: backend/scripts/
+
+╔══════════════════════════════════════════════════════════════════════╗
+║ COMMON COMMANDS                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+┌─ Show Database Status ─────────────────────────────────────────────┐
+│ cd backend/scripts                                                  │
+│ python clear_database.py --status                                   │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─ Quick Clear (Chat History Only) ──────────────────────────────────┐
+│ cd backend/scripts                                                  │
+│ python quick_clear_db.py --yes                                      │
+│                                                                     │
+│ ✓ Clears: chat history, clarifications, questions                  │
+│ ✓ Keeps: entities, modules, structure                              │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─ Clear All Data (Keep Structure) ──────────────────────────────────┐
+│ cd backend/scripts                                                  │
+│ python clear_database.py --clear --truncate --yes                   │
+│                                                                     │
+│ ✓ Fast clear with TRUNCATE                                         │
+│ ✓ Resets auto-increment IDs                                        │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─ Fresh Start (Drop & Recreate) ────────────────────────────────────┐
+│ cd backend/scripts                                                  │
+│ python clear_database.py --drop --yes                               │
+│                                                                     │
+│ ⚠ Drops all tables                                                  │
+│ ✓ Recreates with fresh schema                                      │
+│ ✓ Reloads default entities                                         │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─ Clear But Keep Entities ──────────────────────────────────────────┐
+│ cd backend/scripts                                                  │
+│ python clear_database.py --clear --keep-entities --yes              │
+│                                                                     │
+│ ✓ Preserves your custom entities                                   │
+└─────────────────────────────────────────────────────────────────────┘
+
+╔══════════════════════════════════════════════════════════════════════╗
+║ SCRIPT COMPARISON                                                    ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+┌─ quick_clear_db.py ────────────────────────────────────────────────┐
+│ • Simple and fast                                                   │
+│ • Clears only chat history                                          │
+│ • Keeps entities and structure                                      │
+│ • Safe for regular use                                              │
+│                                                                     │
+│ Usage: python quick_clear_db.py --yes                               │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─ clear_database.py ────────────────────────────────────────────────┐
+│ • Full control                                                      │
+│ • Multiple options (delete/truncate/drop)                           │
+│ • Can preserve entities                                             │
+│ • Shows detailed status                                             │
+│                                                                     │
+│ Usage: python clear_database.py [options]                           │
+└─────────────────────────────────────────────────────────────────────┘
+
+╔══════════════════════════════════════════════════════════════════════╗
+║ OPTIONS EXPLAINED                                                    ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+--status           Show what's in the database
+--clear            Clear all data from tables
+--truncate         Use TRUNCATE (faster than DELETE)
+--drop             Drop and recreate all tables
+--keep-entities    Don't clear erp_entities table
+--yes, -y          Skip confirmation prompt
+
+╔══════════════════════════════════════════════════════════════════════╗
+║ USE CASES                                                            ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+Development Testing
+└─► python quick_clear_db.py --yes
+
+Before Test Suite
+└─► python clear_database.py --drop --yes
+
+Reset IDs & Clear Data
+└─► python clear_database.py --clear --truncate --yes
+
+Keep Custom Entities
+└─► python clear_database.py --clear --keep-entities --yes
+
+Check Database
+└─► python clear_database.py --status
+
+╔══════════════════════════════════════════════════════════════════════╗
+║ WHAT GETS CLEARED                                                    ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+┌─ quick_clear_db.py ────────────────────────────────────────────────┐
+│ ✓ chat_interactions                                                 │
+│ ✓ query_clarifications                                              │
+│ ✓ generated_questions                                               │
+│ ✗ erp_entities (preserved)                                          │
+│ ✗ erp_modules (preserved)                                           │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─ clear_database.py --clear ────────────────────────────────────────┐
+│ ✓ ALL tables (all data)                                             │
+│ ✓ Can use --keep-entities to preserve entities                      │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─ clear_database.py --drop ─────────────────────────────────────────┐
+│ ✓ Drops ALL tables                                                  │
+│ ✓ Recreates fresh schema                                            │
+│ ✓ Reloads default entities                                          │
+└─────────────────────────────────────────────────────────────────────┘
+
+╔══════════════════════════════════════════════════════════════════════╗
+║ TROUBLESHOOTING                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+Error: Connection pool not initialized
+└─► Check MySQL is running
+└─► Verify .env credentials
+└─► Run: python test_mysql_connection.py
+
+Error: Table doesn't exist
+└─► Run: python clear_database.py --drop --yes
+
+Error: Permission denied
+└─► Check MySQL user permissions
+└─► Grant: GRANT ALL ON helpdesk_db.* TO 'user'@'localhost';
+
+╔══════════════════════════════════════════════════════════════════════╗
+║ SAFETY TIPS                                                          ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+✓ Always check --status first
+✓ Use --yes only in scripts/automation
+✓ Use quick_clear_db.py for routine clearing
+✓ Keep backups before using --drop
+✗ NEVER use in production!
+
+╔══════════════════════════════════════════════════════════════════════╗
+║ FULL DOCUMENTATION                                                   ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+See: backend/scripts/README.md
+
+For help:
+python clear_database.py --help
+python quick_clear_db.py --help
+
+═══════════════════════════════════════════════════════════════════════
+
