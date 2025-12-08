@@ -41,3 +41,7 @@ SELECT 'Conversation tables created successfully' AS status;
 SELECT COUNT(*) as conversation_count FROM conversations;
 
 
+
+
+
+

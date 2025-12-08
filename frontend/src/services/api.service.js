@@ -192,6 +192,101 @@ class ApiService {
       };
     }
   }
+
+  /**
+   * Submit feedback for a response
+   */
+  async submitFeedback(feedbackData) {
+    try {
+      console.log('📝 Submitting feedback:', feedbackData.helpful ? 'positive' : 'negative');
+      
+      const response = await apiClient.post('/feedback/submit', feedbackData);
+      
+      console.log('✅ Feedback submitted successfully');
+      
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      console.error('❌ Failed to submit feedback:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        data: null
+      };
+    }
+  }
+
+  /**
+   * Get feedback statistics
+   */
+  async getFeedbackStats(tenantId = 'default', days = 30) {
+    try {
+      const response = await apiClient.get(`/feedback/stats?tenant_id=${tenantId}&days=${days}`);
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Send streaming message
+   */
+  async sendStreamingMessage(query, tenantId = 'default', sessionId = null, onChunk) {
+    try {
+      console.log('🌊 Starting streaming request');
+      
+      const response = await fetch(`${API_CONFIG.baseURL}/chat/query/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authService.getToken() ? { 'Authorization': `Bearer ${authService.getToken()}` } : {}
+        },
+        body: JSON.stringify({
+          query: query,
+          tenant_id: tenantId,
+          session_id: sessionId
+        })
+      });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.substring(6));
+              if (onChunk) onChunk(data);
+            } catch (e) {
+              // Ignore parsing errors
+            }
+          }
+        }
+      }
+      
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Streaming error:', error.message);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
 }
 
 export default new ApiService();

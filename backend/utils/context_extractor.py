@@ -128,6 +128,7 @@ Return as JSON:
         """
         Resolve pronouns/references in current query using conversation history
         Uses AI to understand what "it", "this", "that" refers to
+        Also handles very short queries that are likely follow-ups
         
         Args:
             current_query: Current user query (may contain pronouns)
@@ -136,6 +137,9 @@ Return as JSON:
         Returns:
             Resolved entity/topic, or None if no reference found
         """
+        if not conversation_history:
+            return None
+        
         # Check if query contains pronouns/references
         pronouns = ['it', 'this', 'that', 'these', 'those', 'the module', 'the feature', 
                    'the process', 'the system', 'the option', 'them', 'its']
@@ -143,7 +147,11 @@ Return as JSON:
         query_lower = current_query.lower()
         has_pronoun = any(pronoun in query_lower for pronoun in pronouns)
         
-        if not has_pronoun or not conversation_history:
+        # Also check if query is very short (1-2 words) - likely implicit reference
+        query_words = current_query.strip().split()
+        is_very_short = len(query_words) <= 2
+        
+        if not has_pronoun and not is_very_short:
             return None
         
         try:
@@ -158,15 +166,19 @@ Return as JSON:
 
 Current question: {current_query}
 
-The user's current question contains a reference (like "it", "this", "that module").
-What specific topic/entity from the previous conversation are they referring to?
+The user's current question is either:
+1. A short query that continues the previous topic (e.g., "Lifecycle" after discussing "Job")
+2. Contains a reference word (like "it", "this", "that")
 
-Return ONLY the entity name, nothing else. Examples:
-- "Workflow Module"
-- "Customer Creation"
-- "Purchase Order Process"
+What specific topic/entity from the previous conversation is the user asking about?
+Combine the previous topic with the current query if needed.
 
-If no clear reference, return "NONE".
+Return ONLY the entity/topic name. Examples:
+- If previous was about "Job" and current is "Lifecycle" → return "Job Lifecycle"
+- If previous was about "Workflow Module" and current is "steps" → return "Workflow Module steps"
+- If current is "How does it work?" → return the topic "it" refers to
+
+If no clear connection to previous conversation, return "NONE".
 """
 
             response = client.chat.completions.create(

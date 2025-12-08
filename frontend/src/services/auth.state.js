@@ -88,6 +88,58 @@ class AuthStateService {
         this.user$.next(result.user);
         this.isAuthenticated$.next(true);
         console.log('✅ Login successful:', username);
+        
+        // SECURITY FIX: Clear local state (prevents showing previous user's data)
+        try {
+          const chatState = await import('./chat.state');
+          chatState.default.messages$.next([]);
+          chatState.default.sessionId$.next(null);
+          console.log('🧹 Cleared local chat state');
+        } catch (e) {
+          console.log('⚠️  Could not clear chat state:', e);
+        }
+        
+        // Load user's recent conversation history (with delay to ensure token is saved)
+        setTimeout(async () => {
+          try {
+            const conversationService = require('./conversation.service').default;
+            const chatState = require('./chat.state').default;
+            
+            console.log('📜 Loading user conversation history...');
+            const recentConv = await conversationService.loadRecentConversation();
+            
+            if (recentConv.success && recentConv.messages && recentConv.messages.length > 0) {
+              // Restore user's previous conversation
+              chatState.sessionId$.next(recentConv.sessionId);
+              
+              // Convert messages to chat format
+              const messages = [];
+              for (const msg of recentConv.messages) {
+                messages.push({
+                  role: 'user',
+                  content: msg.query,
+                  timestamp: msg.timestamp,
+                  id: Date.now() + Math.random()
+                });
+                messages.push({
+                  role: 'assistant',
+                  content: msg.response,
+                  timestamp: msg.timestamp,
+                  id: Date.now() + Math.random()
+                });
+              }
+              
+              chatState.messages$.next(messages);
+              console.log(`✅ Restored ${recentConv.messages.length} previous messages from session ${recentConv.sessionId}`);
+            } else {
+              console.log('ℹ️  No previous conversation to restore (starting fresh):', recentConv.reason || recentConv.error);
+            }
+          } catch (e) {
+            console.error('⚠️  Could not load conversation history:', e);
+            // Don't fail login if history loading fails
+          }
+        }, 500); // Small delay to ensure token is in localStorage
+        
         return { success: true, user: result.user };
       } else {
         this.error$.next(result.error);
@@ -106,6 +158,15 @@ class AuthStateService {
    * Logout user
    */
   logout() {
+    // SECURITY FIX: Clear chat state before logging out
+    try {
+      const chatState = require('./chat.state').default;
+      chatState.clearMessages();
+      console.log('🧹 Cleared chat state on logout');
+    } catch (e) {
+      console.log('⚠️  Could not clear chat state:', e);
+    }
+    
     authService.logout();
     this.user$.next(null);
     this.isAuthenticated$.next(false);
@@ -139,5 +200,9 @@ class AuthStateService {
 const authState = new AuthStateService();
 
 export default authState;
+
+
+
+
 
 

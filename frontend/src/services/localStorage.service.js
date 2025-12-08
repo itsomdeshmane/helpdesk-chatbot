@@ -6,7 +6,8 @@
 const STORAGE_KEYS = {
   CHAT_HISTORY: 'helpdesk_chat_history',
   CHAT_SESSIONS: 'helpdesk_chat_sessions',
-  TENANT_ID: 'helpdesk_tenant_id'
+  TENANT_ID: 'helpdesk_tenant_id',
+  SESSION_ID: 'helpdesk_session_id'
 };
 
 class LocalStorageService {

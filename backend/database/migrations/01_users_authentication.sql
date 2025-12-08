@@ -31,3 +31,7 @@ SELECT 'Users table created successfully' AS status;
 SELECT COUNT(*) as user_count FROM users;
 
 
+
+
+
+

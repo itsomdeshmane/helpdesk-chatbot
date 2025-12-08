@@ -153,18 +153,14 @@ export default function Login({ onSuccess }) {
               {isRegister ? 'Sign In' : 'Sign Up'}
             </button>
           </p>
-          
-          {!isRegister && (
-            <div className="demo-credentials">
-              <p className="demo-title">Demo Credentials:</p>
-              <p className="demo-info">👤 Username: <strong>admin</strong></p>
-              <p className="demo-info">🔑 Password: <strong>admin123</strong></p>
-            </div>
-          )}
         </div>
       </div>
     </div>
   );
 }
+
+
+
+
 
 

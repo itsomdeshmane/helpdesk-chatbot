@@ -44,3 +44,7 @@ SELECT 'Question generation tables created successfully' AS status;
 SELECT COUNT(*) as question_count FROM generated_questions;
 
 
+
+
+
+

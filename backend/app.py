@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from routers import chat, documents, analytics, auth
 from routers import feedback, streaming
+from routers import user_conversations, global_analytics  # NEW: User-specific and global analytics
 from utils.observability import get_logger, generate_request_id
 import asyncio
 import time
@@ -72,6 +73,12 @@ app.include_router(streaming.router, prefix="/chat")  # Streaming under /chat
 app.include_router(documents.router, prefix="/documents")
 app.include_router(analytics.router, prefix="/analytics")
 app.include_router(feedback.router, prefix="/feedback")
+
+# NEW: User-specific conversation history (isolated per user)
+app.include_router(user_conversations.router, prefix="/conversations")
+
+# NEW: Global analytics and learning (aggregated from all users for system improvement)
+app.include_router(global_analytics.router, prefix="/analytics/global")
 
 @app.on_event("startup")
 async def startup_event():

@@ -50,22 +50,37 @@ async def chat(
     conv_manager = get_conversation_manager()
     
     try:
-        # Step 0: Manage conversation session
+        # Step 0: Manage conversation session (USER-SPECIFIC)
         print("\n🔐 STEP 0: Managing conversation session...", flush=True)
         has_context = False
         conversation_history = []
         
+        # Extract user_id and tenant_id from current_user if available
+        user_id = current_user.get('username') if current_user else None
+        user_tenant_id = current_user.get('tenant_id', 'default') if current_user else 'default'
+        
+        # Override tenant_id if user is authenticated
+        if current_user and user_tenant_id and user_tenant_id != 'default':
+            tenant_id = user_tenant_id
+            print(f"   🏢 Using user's tenant: {tenant_id}", flush=True)
+        
+        if user_id:
+            print(f"   👤 User-specific conversation: {user_id} (Tenant: {tenant_id})", flush=True)
+        
         # Create or validate session
         if not session_id:
             print("   Creating new session...", flush=True)
-            session_id = conv_manager.create_session(tenant_id)
+            session_id = conv_manager.create_session(tenant_id, user_id=user_id)
             print(f"   ✅ New session created: {session_id}", flush=True)
         else:
             # Check if session is valid
             if conv_manager.check_session_valid(session_id):
                 print(f"   ✅ Using existing session: {session_id}", flush=True)
-                # Get conversation history
-                conversation_history = conv_manager.get_conversation_history(session_id)
+                # Get conversation history (user-specific with SECURITY CHECK)
+                conversation_history = conv_manager.get_conversation_history(
+                    session_id, 
+                    user_id=user_id  # Security: Validate session belongs to user
+                )
                 has_context = len(conversation_history) > 0
                 if has_context:
                     print(f"   📜 Found {len(conversation_history)} previous messages", flush=True)
@@ -73,7 +88,7 @@ async def chat(
                 conv_manager.extend_session(session_id)
             else:
                 print("   ⚠️  Session expired, creating new one...", flush=True)
-                session_id = conv_manager.create_session(tenant_id)
+                session_id = conv_manager.create_session(tenant_id, user_id=user_id)
         
         sys.stdout.flush()
         
@@ -82,33 +97,38 @@ async def chat(
         sys.stdout.flush()
         search_start = time.time()
         
-        # Enhance query with conversation context if available
+        # Enhance query with conversation context if available (NEW FEATURE - with fallback)
         search_query = query
         if has_context and conversation_history:
-            # Try AI-powered context resolution first
-            context_summary = conv_manager.get_context_summary(session_id, query)
-            
-            if context_summary:
-                # For search: append context to help find relevant docs
-                search_query = f"{context_summary} {query}"
-                print(f"   🔗 Resolved context: '{context_summary}'", flush=True)
-                print(f"   🔍 Enhanced search: '{query}' → '{search_query[:120]}...'", flush=True)
-            else:
-                # Fallback: Check if this is a follow-up question (short or contains pronouns)
-                follow_up_indicators = ['it', 'this', 'that', 'these', 'those', 'explain', 'more', 'detail', 'step', 'how', 'why', 'what about']
-                query_words = query.lower().split()
-                is_follow_up = len(query_words) <= 5 or any(indicator in query.lower() for indicator in follow_up_indicators)
+            try:
+                # Try AI-powered context resolution first
+                context_summary = conv_manager.get_context_summary(session_id, query)
                 
-                if is_follow_up:
-                    # Combine with previous query for better search
-                    previous_query = conversation_history[-1].get('query', '')
-                    if previous_query:
-                        search_query = f"{previous_query} {query}"
-                        print(f"   🔗 Follow-up detected, enhanced search: '{query}' → '{search_query[:120]}...'", flush=True)
+                if context_summary:
+                    # For search: append context to help find relevant docs
+                    search_query = f"{context_summary} {query}"
+                    print(f"   🔗 Resolved context: '{context_summary}'", flush=True)
+                    print(f"   🔍 Enhanced search: '{query}' → '{search_query[:120]}...'", flush=True)
+                else:
+                    # Fallback: Check if this is a follow-up question (short or contains pronouns)
+                    follow_up_indicators = ['it', 'this', 'that', 'these', 'those', 'explain', 'more', 'detail', 'step', 'how', 'why', 'what about']
+                    query_words = query.lower().split()
+                    is_follow_up = len(query_words) <= 5 or any(indicator in query.lower() for indicator in follow_up_indicators)
+                    
+                    if is_follow_up:
+                        # Combine with previous query for better search
+                        previous_query = conversation_history[-1].get('query', '')
+                        if previous_query:
+                            search_query = f"{previous_query} {query}"
+                            print(f"   🔗 Follow-up detected, enhanced search: '{query}' → '{search_query[:120]}...'", flush=True)
+                        else:
+                            print(f"   ℹ️  No context resolution needed", flush=True)
                     else:
                         print(f"   ℹ️  No context resolution needed", flush=True)
-                else:
-                    print(f"   ℹ️  No context resolution needed", flush=True)
+            except Exception as e:
+                # If context resolution fails, continue with original query (backward compatible)
+                print(f"   ⚠️  Context resolution failed (using original query): {e}", flush=True)
+                search_query = query
         
         docs_task = asyncio.create_task(asyncio.to_thread(search, search_query, tenant_id))
         
@@ -146,13 +166,20 @@ async def chat(
         print("\n💾 STEP 3: Saving to conversation history...", flush=True)
         total_time = time.time() - start_time
         
+        # Prepare context with main_topic for next message (NEW FEATURE - optional)
+        context_to_save = conversation_history if has_context else []
+        main_topic = result.get('main_topic', None) if isinstance(result, dict) else None
+        if main_topic:
+            print(f"   🏷️  Saving main topic for context: '{main_topic}'", flush=True)
+        
         conv_manager.save_message(
             session_id=session_id,
             query=query,
             response=result.get('response', ''),
             module="General",
             response_time=total_time,
-            context_used=conversation_history if has_context else None
+            context_used=context_to_save,
+            main_topic=main_topic  # Optional - will work even if None
         )
         print(f"   ✅ Message saved to session", flush=True)
         

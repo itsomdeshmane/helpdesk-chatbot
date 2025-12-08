@@ -57,3 +57,7 @@ SELECT 'Context tracking tables created successfully' AS status;
 SELECT COUNT(*) as context_count FROM conversation_context;
 
 
+
+
+
+

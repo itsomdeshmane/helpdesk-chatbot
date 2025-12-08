@@ -219,9 +219,28 @@ def generate_response_with_module_with_context(query: str, context: str, tenant_
         )
         
         if context_is_empty:
-            return {
-                "response": "I don't have information about this in the loaded documentation. Please check if the relevant document has been uploaded or contact support."
-            }
+            # Try to find related topics and provide helpful hints (NEW FEATURE - optional)
+            print(f"   ℹ️  No direct answer found, searching for related topics...", flush=True)
+            try:
+                from llm.related_topics_finder import generate_not_found_response_with_hints
+                helpful_response = generate_not_found_response_with_hints(query, tenant_id)
+                # Return immediately - DO NOT generate related question for "no answer" responses
+                return {
+                    "response": helpful_response,
+                    "query_type": "no_answer",
+                    "main_topic": None,
+                    "related_question": None
+                }
+            except Exception as e:
+                print(f"   ⚠️  Could not find related topics: {e}", flush=True)
+                # Fallback to standard message
+                # DO NOT generate related question for "no answer" responses
+                return {
+                    "response": "I don't have information about this in the loaded documentation. Please check if the relevant document has been uploaded or contact support.",
+                    "query_type": "no_answer",
+                    "main_topic": None,
+                    "related_question": None
+                }
         
         # Truncate context if too long
         max_context_chars = 8000
@@ -287,6 +306,55 @@ INSTRUCTIONS:
             answer = '\n'.join(line for line in lines if not line.strip().startswith("MODULE:"))
             answer = answer.strip()
         
+        # Extract main topic from query and response for context tracking (NEW FEATURE - optional)
+        main_topic = None
+        try:
+            from utils.context_extractor import get_context_extractor
+            extractor = get_context_extractor()
+            context_data = extractor.extract_context(query, answer)
+            main_topic = context_data.get('main_topic', '') if context_data else None
+            if main_topic:
+                print(f"   🏷️  Extracted topic: '{main_topic}'", flush=True)
+        except Exception as e:
+            # Silently fail - context extraction is optional enhancement
+            print(f"   ⚠️  Could not extract topic (continuing without it): {e}", flush=True)
+            main_topic = None
+        
+        # Generate related question to guide conversation (NEW FEATURE - optional)
+        # ONLY if we have a real answer (not "no documentation" message)
+        related_question = None
+        
+        # Skip related questions if this is a "no documentation" response
+        is_no_doc_response = any(phrase in answer.lower() for phrase in [
+            "don't have information",
+            "no information",
+            "no documentation",
+            "not found",
+            "please check if the relevant document"
+        ])
+        
+        if not is_no_doc_response:
+            try:
+                from llm.related_questions import get_related_question_cached
+                # Pass tenant_id for answerability verification
+                related_question = get_related_question_cached(
+                    query, 
+                    answer, 
+                    main_topic,
+                    tenant_id=tenant_id,
+                    verify_answerable=True  # Ensures question can be answered from docs
+                )
+                if related_question:
+                    print(f"   💡 Generated related question: '{related_question}'", flush=True)
+                    # Append to answer with nice formatting
+                    answer = f"{answer}\n\n---\n\n💡 **You might also want to ask:** {related_question}"
+            except Exception as e:
+                # Silently fail - this is optional enhancement
+                print(f"   ⚠️  Could not generate related question (continuing without it): {e}", flush=True)
+                related_question = None
+        else:
+            print(f"   ℹ️  Skipping related question generation (no documentation found)", flush=True)
+        
         # Save interaction to database for training
         if enhanced_features_available:
             try:
@@ -303,7 +371,9 @@ INSTRUCTIONS:
         
         return {
             "response": answer,
-            "query_type": query_type
+            "query_type": query_type,
+            "main_topic": main_topic,
+            "related_question": related_question
         }
     except Exception as e:
         print(f"   ❌ Error generating response: {str(e)}")
