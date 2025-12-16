@@ -1,18 +1,18 @@
 """
 Authentication utilities for JWT token generation and password hashing
 """
-import os
 from datetime import datetime, timedelta
 from typing import Optional, Dict
 import jwt
 from passlib.hash import bcrypt
 from fastapi import HTTPException, Security, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from config import JWT_SECRET_KEY, JWT_ALGORITHM, JWT_EXPIRATION_HOURS
 
-# JWT Configuration
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production-min-32-chars-long")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+# JWT Configuration from centralized config
+SECRET_KEY = JWT_SECRET_KEY
+ALGORITHM = JWT_ALGORITHM
+ACCESS_TOKEN_EXPIRE_MINUTES = JWT_EXPIRATION_HOURS * 60
 
 # Required auth - raises 403 if no token
 security = HTTPBearer()

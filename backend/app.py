@@ -1,8 +1,9 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from routers import chat, documents, analytics, auth
-from routers import feedback, streaming
+from routers import feedback, streaming, smart_chat, settings
 from routers import user_conversations, global_analytics  # NEW: User-specific and global analytics
+from routers import keyword_training  # NEW: Keyword learning system
 from utils.observability import get_logger, generate_request_id
 import asyncio
 import time
@@ -70,6 +71,7 @@ async def log_requests(request: Request, call_next):
 app.include_router(auth.router, prefix="/auth")
 app.include_router(chat.router, prefix="/chat")
 app.include_router(streaming.router, prefix="/chat")  # Streaming under /chat
+app.include_router(smart_chat.router, prefix="/chat")  # Smart chat with multi-source support
 app.include_router(documents.router, prefix="/documents")
 app.include_router(analytics.router, prefix="/analytics")
 app.include_router(feedback.router, prefix="/feedback")
@@ -79,6 +81,12 @@ app.include_router(user_conversations.router, prefix="/conversations")
 
 # NEW: Global analytics and learning (aggregated from all users for system improvement)
 app.include_router(global_analytics.router, prefix="/analytics/global")
+
+# Settings management
+app.include_router(settings.router)
+
+# Keyword training (AI learning system - ZERO HARDCODED)
+app.include_router(keyword_training.router)
 
 @app.on_event("startup")
 async def startup_event():

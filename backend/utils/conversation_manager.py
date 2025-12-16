@@ -124,24 +124,35 @@ class ConversationManager:
                     msg_data = {
                         'query': msg.get('query', ''),
                         'response': msg.get('response', ''),
-                        'timestamp': str(msg.get('created_at', ''))
+                        'timestamp': str(msg.get('created_at', '')),
+                        'module': msg.get('module', '')
                     }
                     
-                    # Try to extract main_topic from context_used JSON (NEW FEATURE - optional)
+                    # Try to extract metadata from context_used JSON (NEW FEATURE - optional)
                     if msg.get('context_used'):
                         try:
                             import json
                             context_data = json.loads(msg['context_used']) if isinstance(msg['context_used'], str) else msg['context_used']
                             if isinstance(context_data, list) and len(context_data) > 0:
-                                # Last item might have main_topic
+                                # Last item might have main_topic or sql_query
                                 last_context = context_data[-1]
-                                if isinstance(last_context, dict) and 'main_topic' in last_context:
-                                    msg_data['main_topic'] = last_context['main_topic']
+                                if isinstance(last_context, dict):
+                                    if 'main_topic' in last_context:
+                                        msg_data['main_topic'] = last_context['main_topic']
+                                    # Include SQL query if available (for database queries)
+                                    if 'sql_query' in last_context:
+                                        msg_data['sql_query'] = last_context['sql_query']
+                                        print(f"📝 Retrieved SQL from history: {last_context['sql_query'][:50]}...")
+                                    if 'row_count' in last_context:
+                                        msg_data['row_count'] = last_context['row_count']
                         except Exception as e:
                             # Silently fail - this is optional context enhancement
+                            print(f"⚠️ Error parsing context_used: {e}")
                             pass
                     
                     result.append(msg_data)
+                
+                print(f"✅ Retrieved {len(result)} messages from conversation history")
                 
                 return result
         
