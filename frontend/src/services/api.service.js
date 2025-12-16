@@ -287,6 +287,58 @@ class ApiService {
       };
     }
   }
+
+  /**
+   * Generic GET request
+   */
+  async get(url, config = {}) {
+    try {
+      const response = await apiClient.get(url, config);
+      return response;
+    } catch (error) {
+      console.error(`❌ GET ${url} failed:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Generic POST request
+   */
+  async post(url, data = {}, config = {}) {
+    try {
+      const response = await apiClient.post(url, data, config);
+      return response;
+    } catch (error) {
+      console.error(`❌ POST ${url} failed:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Generic PUT request
+   */
+  async put(url, data = {}, config = {}) {
+    try {
+      const response = await apiClient.put(url, data, config);
+      return response;
+    } catch (error) {
+      console.error(`❌ PUT ${url} failed:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Generic DELETE request
+   */
+  async delete(url, config = {}) {
+    try {
+      const response = await apiClient.delete(url, config);
+      return response;
+    } catch (error) {
+      console.error(`❌ DELETE ${url} failed:`, error.message);
+      throw error;
+    }
+  }
 }
 
 export default new ApiService();

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import ChatWindow from './components/ChatWindow';
+import ChatWindowEnhanced from './components/ChatWindow-Enhanced';
 import Login from './components/Login';
 import authState from './services/auth.state';
 import './App.css';
@@ -46,25 +46,6 @@ export default function App() {
   }
 
   return (
-    <div className="app-container">
-      <header className="app-header">
-        <div className="header-content">
-          <div className="header-left">
-            <div className="header-icon">💬</div>
-            <h1>AI Assistant</h1>
-          </div>
-          <div className="header-right">
-            <div className="user-info">
-              <span className="user-name">👤 {user?.username}</span>
-              <span className="user-role">{user?.role}</span>
-            </div>
-            <button onClick={handleLogout} className="logout-button">
-              🚪 Logout
-            </button>
-          </div>
-        </div>
-      </header>
-      <ChatWindow />
-    </div>
+    <ChatWindowEnhanced user={user} onLogout={handleLogout} />
   );
 }

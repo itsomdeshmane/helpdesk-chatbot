@@ -1,0 +1,64 @@
+{
+  "gridKeywords": [
+    "show table",
+    "in a table",
+    "as a table",
+    "tabular format",
+    "grid format",
+    "compare",
+    "comparison",
+    "show all columns",
+    "show all fields",
+    "detailed view",
+    "in table format"
+  ],
+  "listKeywords": [
+    "list",
+    "list all",
+    "list of",
+    "show names",
+    "show titles",
+    "give me names",
+    "what are the names",
+    "enumerate",
+    "show me list"
+  ],
+  "aggregateKeywords": [
+    "how many",
+    "count",
+    "total",
+    "sum",
+    "average",
+    "avg",
+    "maximum",
+    "max",
+    "minimum",
+    "min",
+    "median",
+    "percentage",
+    "percent"
+  ],
+  "singleAnswerPatterns": [
+    "what is",
+    "what's",
+    "who is",
+    "who's",
+    "when was",
+    "when is",
+    "where is",
+    "which is",
+    "how much",
+    "is there",
+    "are there"
+  ],
+  "listOrientedKeywords": [
+    "list",
+    "names",
+    "titles",
+    "all the",
+    "which",
+    "what are",
+    "show me the"
+  ]
+}
+

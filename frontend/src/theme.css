@@ -1,0 +1,100 @@
+/* Theme Variables */
+
+/* Light Theme (Default) */
+:root,
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f7f7f8;
+  --bg-tertiary: #f0f0f0;
+  --bg-hover: #ececf1;
+  
+  --text-primary: #1a1a1a;
+  --text-secondary: #565869;
+  --text-tertiary: #9ca3af;
+  
+  --border-color: #ececf1;
+  --border-strong: #d1d5db;
+  
+  --accent-color: #10a37f;
+  --accent-hover: #0e9272;
+  
+  --message-user-bg: #ffffff;
+  --message-assistant-bg: #f0f0f0;
+  
+  --sidebar-bg: #f7f7f8;
+  --header-bg: #ffffff;
+  --input-bg: #ffffff;
+  
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 20px rgba(0, 0, 0, 0.15);
+}
+
+/* Dark Theme */
+[data-theme="dark"] {
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #2d2d2d;
+  --bg-tertiary: #3a3a3a;
+  --bg-hover: #404040;
+  
+  --text-primary: #ececf1;
+  --text-secondary: #b4b4b4;
+  --text-tertiary: #8e8e93;
+  
+  --border-color: #3a3a3a;
+  --border-strong: #4a4a4a;
+  
+  --accent-color: #10a37f;
+  --accent-hover: #0e9272;
+  
+  --message-user-bg: #2d2d2d;
+  --message-assistant-bg: #343541;
+  
+  --sidebar-bg: #202123;
+  --header-bg: #2d2d2d;
+  --input-bg: #40414f;
+  
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 20px rgba(0, 0, 0, 0.5);
+}
+
+/* Apply theme to body */
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Smooth transitions for theme changes */
+* {
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+/* Override for elements that shouldn't transition */
+button,
+input,
+textarea,
+select {
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Dark theme scrollbar */
+[data-theme="dark"]::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+[data-theme="dark"]::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+[data-theme="dark"]::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+[data-theme="dark"]::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
