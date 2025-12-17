@@ -1,57 +1,137 @@
-# FastAPI and Server
+# ============================================================================
+# HELPDESK CHATBOT - CONSOLIDATED REQUIREMENTS
+# All dependencies in one file for easy installation
+# Install: pip install -r requirements.txt
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# WEB FRAMEWORK & SERVER
+# ----------------------------------------------------------------------------
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
 sse-starlette==1.6.5
+gunicorn==21.2.0  # Production server
 
-# Document Processing
-python-docx==1.1.0
-pdfplumber==0.10.3
-openpyxl==3.1.2
+# ----------------------------------------------------------------------------
+# SOLID ARCHITECTURE (NEW)
+# ----------------------------------------------------------------------------
+dependency-injector>=4.41.0  # Dependency injection framework
+pydantic>=2.0.0  # Data validation
+pydantic-settings>=2.0.0  # Settings management
 
-# Vector Database and AI
-pinecone>=5.0.0
-openai==1.54.4
+# ----------------------------------------------------------------------------
+# AI & LLM
+# ----------------------------------------------------------------------------
+openai==1.54.4  # OpenAI API
+pinecone>=5.0.0  # Vector database
 
-# HTTP and Networking
-httpx==0.27.2
-python-dotenv==1.0.0
-
-# Database
-mysql-connector-python==8.2.0
-pymysql==1.1.0
-
-# Authentication
-PyJWT==2.8.0
-passlib==1.7.4
-bcrypt==4.0.1
-
-# Machine Learning & Search (Production Ready)
-scikit-learn>=1.3.0
-numpy>=1.24.0
-sentence-transformers>=2.2.2
-rank-bm25>=0.2.2
-
-# Caching (Optional - falls back to in-memory if not available)
-redis>=5.0.0
-
-# LangChain for advanced chunking (optional)
+# LangChain (optional - for advanced chunking)
 langchain>=0.1.0
 langchain-experimental>=0.0.47
 langchain-openai>=0.0.5
 
-# Observability and Logging
-structlog>=23.2.0
+# ----------------------------------------------------------------------------
+# DOCUMENT PROCESSING
+# ----------------------------------------------------------------------------
+python-docx==1.1.0  # Word documents
+pdfplumber==0.10.3  # PDF files
+openpyxl==3.1.2  # Excel files
 
-# Data validation
-pydantic>=2.0.0
+# ----------------------------------------------------------------------------
+# DATABASE DRIVERS
+# ----------------------------------------------------------------------------
+# MySQL (Primary)
+mysql-connector-python==8.2.0
+pymysql==1.1.0
 
-# Async utilities
-aiofiles>=23.2.1
+# PostgreSQL (Optional)
+psycopg2-binary==2.9.9
 
-# NLTK for sentence tokenization
-nltk>=3.8.1
+# SQL Server (Optional)
+pyodbc==5.0.1
 
-# NLP for location detection and entity recognition
-spacy>=3.7.0
-rapidfuzz>=3.5.2
+# ORM (Optional)
+sqlalchemy==2.0.23
+
+# ----------------------------------------------------------------------------
+# MACHINE LEARNING & SEARCH
+# ----------------------------------------------------------------------------
+scikit-learn>=1.3.0
+numpy>=1.24.0
+sentence-transformers>=2.2.2  # Semantic search
+rank-bm25>=0.2.2  # Keyword search
+
+# NLP
+nltk>=3.8.1  # Sentence tokenization
+spacy>=3.7.0  # Entity recognition
+rapidfuzz>=3.5.2  # Fuzzy matching
+
+# ----------------------------------------------------------------------------
+# AUTHENTICATION & SECURITY
+# ----------------------------------------------------------------------------
+PyJWT==2.8.0  # JWT tokens
+passlib[bcrypt]==1.7.4  # Password hashing
+bcrypt==4.0.1  # Bcrypt hashing
+cryptography==41.0.7  # Encryption
+python-jose[cryptography]==3.3.0  # JWT with crypto
+
+# ----------------------------------------------------------------------------
+# HTTP & NETWORKING
+# ----------------------------------------------------------------------------
+httpx==0.27.2  # HTTP client
+python-dotenv==1.0.0  # Environment variables
+
+# ----------------------------------------------------------------------------
+# CACHING (OPTIONAL)
+# ----------------------------------------------------------------------------
+redis>=5.0.0  # Redis cache (optional - falls back to in-memory)
+
+# ----------------------------------------------------------------------------
+# LOGGING & OBSERVABILITY
+# ----------------------------------------------------------------------------
+structlog>=23.2.0  # Structured logging
+
+# ----------------------------------------------------------------------------
+# ASYNC UTILITIES
+# ----------------------------------------------------------------------------
+aiofiles>=23.2.1  # Async file operations
+
+# ----------------------------------------------------------------------------
+# TESTING & QA (DEVELOPMENT)
+# ----------------------------------------------------------------------------
+pytest>=7.4.0  # Testing framework
+pytest-asyncio>=0.21.0  # Async testing
+pytest-mock>=3.11.0  # Mocking
+pytest-cov>=4.1.0  # Code coverage
+
+# Type Checking
+mypy>=1.5.0  # Type checker
+types-requests>=2.31.0  # Type stubs
+
+# Code Quality
+black>=23.7.0  # Code formatter
+flake8>=6.1.0  # Linter
+isort>=5.12.0  # Import sorter
+
+# ============================================================================
+# INSTALLATION NOTES
+# ============================================================================
+# 
+# Quick Install (All dependencies):
+#   pip install -r requirements.txt
+#
+# Production Install (Core features only):
+#   pip install -r requirements.txt --only-binary :all:
+#
+# Development Install (With testing tools):
+#   pip install -r requirements.txt
+#
+# Optional Dependencies:
+#   - PostgreSQL: Requires psycopg2-binary
+#   - SQL Server: Requires ODBC Driver 17
+#   - Redis: Requires Redis server running
+#   - Spacy: Run after install: python -m spacy download en_core_web_sm
+#   - NLTK: Run after install: python -m nltk.downloader punkt
+#
+# ============================================================================

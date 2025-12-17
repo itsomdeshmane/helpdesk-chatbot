@@ -5,6 +5,7 @@ from routers import feedback, streaming, smart_chat, settings
 from routers import user_conversations, global_analytics  # NEW: User-specific and global analytics
 from routers import keyword_training  # NEW: Keyword learning system
 from routers import metadata_management  # NEW: Metadata learning and management
+from routers import smart_chat_v2  # NEW: SOLID-compliant router
 from utils.observability import get_logger, generate_request_id
 from utils.rate_limiter import rate_limiter
 import asyncio
@@ -13,10 +14,32 @@ import time
 # Initialize logger
 logger = get_logger()
 
+# ============================================================================
+# SOLID REFACTORING: Dependency Injection Container
+# ============================================================================
+from core.container import AppContainer
+
+# Initialize DI container
+container = AppContainer()
+
+# Wire container with FastAPI (enables dependency injection)
+container.wire(modules=[
+    "routers.smart_chat_v2",  # New SOLID router
+    __name__  # Current module (app.py)
+])
+
+logger.info("✅ Dependency Injection Container initialized and wired")
+
+# Initialize legacy bridge (for backward compatibility during migration)
+from utils.legacy_bridge import LegacyBridge
+LegacyBridge.set_container(container)
+logger.info("✅ Legacy bridge initialized")
+# ============================================================================
+
 app = FastAPI(
     title="AI Helpdesk Chatbot",
-    description="AI-powered helpdesk chatbot with document search, Q&A, streaming, and feedback",
-    version="2.0.0"
+    description="AI-powered helpdesk chatbot with document search, Q&A, streaming, and feedback - Now with SOLID architecture!",
+    version="2.1.0"  # Incremented version for SOLID architecture
 )
 
 # Configure CORS - MUST be added before other middleware
@@ -75,7 +98,24 @@ async def log_requests(request: Request, call_next):
 app.include_router(auth.router, prefix="/auth")
 app.include_router(chat.router, prefix="/chat")
 app.include_router(streaming.router, prefix="/chat")  # Streaming under /chat
-app.include_router(smart_chat.router, prefix="/chat")  # Smart chat with multi-source support
+
+# ============================================================================
+# SMART CHAT ROUTERS: Both old and new for gradual migration
+# ============================================================================
+# OLD: Legacy router (kept for backward compatibility)
+app.include_router(smart_chat.router, prefix="/chat", tags=["Smart Chat (Legacy)"])
+
+# NEW: SOLID-compliant router with dependency injection
+app.include_router(smart_chat_v2.router, prefix="/chat", tags=["Smart Chat V2 (SOLID)"])
+# 
+# Migration Strategy:
+# 1. Both routers are available simultaneously
+# 2. New endpoints at /chat/smart/v2/* use SOLID architecture
+# 3. Old endpoints at /chat/smart/* still work (legacy)
+# 4. Backward compatible endpoint at /chat/smart/query uses new implementation
+# 5. After validation, can remove legacy router
+# ============================================================================
+
 app.include_router(documents.router, prefix="/documents")
 app.include_router(analytics.router, prefix="/analytics")
 app.include_router(feedback.router, prefix="/feedback")
@@ -112,6 +152,15 @@ async def startup_event():
     print("   • POST /documents/reload-markdown - Reload only markdown files", flush=True)
     print("", flush=True)
     print("💡 If documents are already in Pinecone, they will be queried automatically.", flush=True)
+    
+    print("\n" + "="*80, flush=True)
+    print("🎉 SOLID REFACTORING ACTIVE!", flush=True)
+    print("="*80, flush=True)
+    print("✅ Dependency Injection: Enabled", flush=True)
+    print("✅ SOLID Architecture: Active", flush=True)
+    print("✅ New Endpoints: /chat/smart/v2/* (SOLID-compliant)", flush=True)
+    print("✅ Legacy Endpoints: /chat/smart/* (backward compatible)", flush=True)
+    print("="*80 + "\n", flush=True)
     
     print("\n" + "="*80, flush=True)
     print("AI HELPDESK CHATBOT - READY!", flush=True)
