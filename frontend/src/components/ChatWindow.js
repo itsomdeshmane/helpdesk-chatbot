@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import chatState from '../services/chat.state';
 import apiService from '../services/api.service';
 import './ChatWindow.css';
 
-// Simple Markdown renderer component
-const MarkdownText = ({ text }) => {
+// Simple Markdown renderer component (Memoized for performance)
+const MarkdownText = memo(({ text }) => {
   // Convert markdown to HTML
   const renderMarkdown = (content) => {
     if (!content) return '';
@@ -53,10 +53,10 @@ const MarkdownText = ({ text }) => {
       dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }}
     />
   );
-};
+});
 
-// Feedback component
-const FeedbackButtons = ({ message, onFeedback }) => {
+// Feedback component (Memoized - won't re-render unless message changes)
+const FeedbackButtons = memo(({ message, onFeedback }) => {
   const [feedbackGiven, setFeedbackGiven] = useState(null);
   const [showTextInput, setShowTextInput] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
@@ -145,10 +145,10 @@ const FeedbackButtons = ({ message, onFeedback }) => {
       )}
     </div>
   );
-};
+});
 
-// Suggested Questions component
-const SuggestedQuestions = ({ questions, onSelect }) => {
+// Suggested Questions component (Memoized)
+const SuggestedQuestions = memo(({ questions, onSelect }) => {
   if (!questions || questions.length === 0) return null;
   
   return (
@@ -167,9 +167,10 @@ const SuggestedQuestions = ({ questions, onSelect }) => {
       </div>
     </div>
   );
-};
+});
 
 // Source Attribution component - DISABLED (answers come only from document chunks)
+// No need to memoize as it returns null
 const SourceAttribution = ({ sources }) => {
   // Sources display disabled - chatbot only uses document chunks
   return null;
@@ -184,14 +185,14 @@ export default function ChatWindow() {
   const messagesEndRef = useRef(null);
   const eventSourceRef = useRef(null);
 
-  // Auto-scroll to bottom
-  const scrollToBottom = () => {
+  // Auto-scroll to bottom (memoized)
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, streamingContent]);
+  }, [messages, streamingContent, scrollToBottom]);
 
   // Subscribe to state changes
   useEffect(() => {
@@ -378,7 +379,7 @@ export default function ChatWindow() {
     }
   }, []);
 
-  const handleSend = async () => {
+  const handleSend = useCallback(async () => {
     if (!input.trim() || loading || isStreaming) return;
 
     const query = input;
@@ -391,24 +392,24 @@ export default function ChatWindow() {
       // Fallback to non-streaming
       await chatState.sendMessage(query);
     }
-  };
+  }, [input, loading, isStreaming, handleStreamingResponse]);
 
-  const handleKeyPress = (e) => {
+  const handleKeyPress = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
-  };
+  }, [handleSend]);
 
-  const handleClear = () => {
+  const handleClear = useCallback(() => {
     if (window.confirm('Clear all messages?')) {
       chatState.clearMessages();
     }
-  };
+  }, []);
   
-  const handleSuggestionClick = (question) => {
+  const handleSuggestionClick = useCallback((question) => {
     setInput(question);
-  };
+  }, []);
 
   return (
     <div className="chat-container">

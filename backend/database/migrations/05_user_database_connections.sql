@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS user_database_connections (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     tenant_id VARCHAR(100) NOT NULL,
+    db_type VARCHAR(20) DEFAULT 'mysql' NOT NULL COMMENT 'mysql, postgresql, sqlserver',
     host VARCHAR(255) NOT NULL,
     port INT NOT NULL DEFAULT 3306,
     database_name VARCHAR(100) NOT NULL,
@@ -27,4 +28,6 @@ COMMENT='Stores encrypted database connection credentials for users';
 
 -- Add index for efficient queries
 CREATE INDEX idx_created_at ON user_database_connections(created_at);
+
+
 

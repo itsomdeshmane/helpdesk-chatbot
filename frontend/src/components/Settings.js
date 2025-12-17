@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import './Settings.css';
 import apiService from '../services/api.service';
+import DocumentManagement from './DocumentManagement';
 
-const Settings = ({ isOpen, onClose, currentTheme, onThemeChange }) => {
+const Settings = ({ isOpen, onClose, currentTheme, onThemeChange, user }) => {
   const [activeTab, setActiveTab] = useState('general');
   const [dbConnection, setDbConnection] = useState({
+    db_type: 'mysql',  // Added database type
     host: '',
     port: '3306',
     database: '',
@@ -14,6 +16,13 @@ const Settings = ({ isOpen, onClose, currentTheme, onThemeChange }) => {
   const [testStatus, setTestStatus] = useState(null);
   const [saveStatus, setSaveStatus] = useState(null);
   const [loading, setLoading] = useState(false);
+  
+  // Database type defaults
+  const dbDefaults = {
+    mysql: { port: '3306', icon: '🐬', name: 'MySQL' },
+    postgresql: { port: '5432', icon: '🐘', name: 'PostgreSQL' },
+    sqlserver: { port: '1433', icon: '🗄️', name: 'SQL Server' }
+  };
 
   // Load existing connection settings
   useEffect(() => {
@@ -30,6 +39,7 @@ const Settings = ({ isOpen, onClose, currentTheme, onThemeChange }) => {
       
       if (response.data && response.data.data) {
         setDbConnection({
+          db_type: response.data.data.db_type || 'mysql',
           host: response.data.data.host || '',
           port: response.data.data.port || '3306',
           database: response.data.data.database || '',
@@ -52,6 +62,16 @@ const Settings = ({ isOpen, onClose, currentTheme, onThemeChange }) => {
     setTestStatus(null);
     setSaveStatus(null);
   };
+  
+  const handleDbTypeChange = (dbType) => {
+    setDbConnection(prev => ({
+      ...prev,
+      db_type: dbType,
+      port: dbDefaults[dbType].port  // Auto-update port when DB type changes
+    }));
+    setTestStatus(null);
+    setSaveStatus(null);
+  };
 
   const testConnection = async () => {
     try {
@@ -59,6 +79,7 @@ const Settings = ({ isOpen, onClose, currentTheme, onThemeChange }) => {
       setTestStatus('testing');
       
       console.log('Testing connection with:', {
+        db_type: dbConnection.db_type,
         host: dbConnection.host,
         port: dbConnection.port,
         database: dbConnection.database,
@@ -66,6 +87,7 @@ const Settings = ({ isOpen, onClose, currentTheme, onThemeChange }) => {
       });
       
       const response = await apiService.post('/settings/test-database-connection', {
+        db_type: dbConnection.db_type,
         host: dbConnection.host,
         port: parseInt(dbConnection.port),
         database: dbConnection.database,
@@ -101,6 +123,7 @@ const Settings = ({ isOpen, onClose, currentTheme, onThemeChange }) => {
       console.log('Saving connection...');
       
       const response = await apiService.post('/settings/database-connection', {
+        db_type: dbConnection.db_type,
         host: dbConnection.host,
         port: parseInt(dbConnection.port),
         database: dbConnection.database,
@@ -153,6 +176,12 @@ const Settings = ({ isOpen, onClose, currentTheme, onThemeChange }) => {
             >
               Database
             </button>
+            <button
+              className={`settings-tab ${activeTab === 'documents' ? 'active' : ''}`}
+              onClick={() => setActiveTab('documents')}
+            >
+              Documents
+            </button>
           </div>
 
           <div className="settings-body">
@@ -193,8 +222,24 @@ const Settings = ({ isOpen, onClose, currentTheme, onThemeChange }) => {
               <div className="settings-section">
                 <h3>Database Connection</h3>
                 <p className="section-description">
-                  Configure your database connection. All credentials are encrypted and stored securely.
+                  Configure your database connection. Supports MySQL, PostgreSQL, and SQL Server.
                 </p>
+
+                <div className="setting-item">
+                  <label>Database Type</label>
+                  <select
+                    className="setting-input"
+                    value={dbConnection.db_type}
+                    onChange={(e) => handleDbTypeChange(e.target.value)}
+                  >
+                    <option value="mysql">{dbDefaults.mysql.icon} MySQL</option>
+                    <option value="postgresql">{dbDefaults.postgresql.icon} PostgreSQL</option>
+                    <option value="sqlserver">{dbDefaults.sqlserver.icon} SQL Server</option>
+                  </select>
+                  <small className="input-hint">
+                    Current: {dbDefaults[dbConnection.db_type].name} (Default port: {dbDefaults[dbConnection.db_type].port})
+                  </small>
+                </div>
 
                 <div className="setting-item">
                   <label>Host</label>
@@ -286,6 +331,12 @@ const Settings = ({ isOpen, onClose, currentTheme, onThemeChange }) => {
                 </div>
               </div>
             )}
+
+            {activeTab === 'documents' && (
+              <div className="settings-section">
+                <DocumentManagement user={user} />
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -294,4 +345,5 @@ const Settings = ({ isOpen, onClose, currentTheme, onThemeChange }) => {
 };
 
 export default Settings;
+
 

@@ -4,7 +4,9 @@ from routers import chat, documents, analytics, auth
 from routers import feedback, streaming, smart_chat, settings
 from routers import user_conversations, global_analytics  # NEW: User-specific and global analytics
 from routers import keyword_training  # NEW: Keyword learning system
+from routers import metadata_management  # NEW: Metadata learning and management
 from utils.observability import get_logger, generate_request_id
+from utils.rate_limiter import rate_limiter
 import asyncio
 import time
 
@@ -18,22 +20,24 @@ app = FastAPI(
 )
 
 # Configure CORS - MUST be added before other middleware
-# Using wildcard for development, restrict in production
+# Secure: Uses environment-based configuration, NO wildcards in production
+from config import CORS_ORIGINS, ENVIRONMENT
+
+print(f"🔒 CORS configured for {ENVIRONMENT} environment")
+print(f"   Allowed origins: {', '.join(CORS_ORIGINS)}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:4200",  # React dev server
-        "http://localhost:3000",  # Fallback
-        "http://127.0.0.1:4200",
-        "http://127.0.0.1:3000",
-        "*",  # Allow all origins for development
-    ],
+    allow_origins=CORS_ORIGINS,  # Environment-based, no wildcards
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
-    expose_headers=["X-Request-ID"],
+    expose_headers=["X-Request-ID", "X-Session-ID", "X-RateLimit-Limit-Minute", "X-RateLimit-Remaining-Minute"],
     max_age=3600,  # Cache preflight requests for 1 hour
 )
+
+# Rate limiting middleware - protect against abuse
+app.middleware("http")(rate_limiter)
 
 # Request logging middleware - skip OPTIONS requests to avoid interference with CORS
 @app.middleware("http")
@@ -87,6 +91,9 @@ app.include_router(settings.router)
 
 # Keyword training (AI learning system - ZERO HARDCODED)
 app.include_router(keyword_training.router)
+
+# Metadata management (Column/table descriptions and auto-learning)
+app.include_router(metadata_management.router, prefix="/metadata")
 
 @app.on_event("startup")
 async def startup_event():

@@ -2,12 +2,17 @@
 Authentication utilities for JWT token generation and password hashing
 """
 from datetime import datetime, timedelta
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
+import re
 import jwt
 from passlib.hash import bcrypt
 from fastapi import HTTPException, Security, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from config import JWT_SECRET_KEY, JWT_ALGORITHM, JWT_EXPIRATION_HOURS
+from config import (
+    JWT_SECRET_KEY, JWT_ALGORITHM, JWT_EXPIRATION_HOURS,
+    PASSWORD_MIN_LENGTH, PASSWORD_REQUIRE_UPPERCASE,
+    PASSWORD_REQUIRE_DIGITS, PASSWORD_REQUIRE_SPECIAL
+)
 
 # JWT Configuration from centralized config
 SECRET_KEY = JWT_SECRET_KEY
@@ -22,6 +27,33 @@ security_optional = HTTPBearer(auto_error=False)
 
 class AuthUtils:
     """Authentication utility functions"""
+    
+    @staticmethod
+    def validate_password(password: str) -> Tuple[bool, Optional[str]]:
+        """
+        Validate password strength according to security policy
+        
+        Returns:
+            (is_valid, error_message)
+        """
+        if len(password) < PASSWORD_MIN_LENGTH:
+            return False, f"Password must be at least {PASSWORD_MIN_LENGTH} characters long"
+        
+        if PASSWORD_REQUIRE_UPPERCASE and not re.search(r'[A-Z]', password):
+            return False, "Password must contain at least one uppercase letter"
+        
+        if PASSWORD_REQUIRE_DIGITS and not re.search(r'\d', password):
+            return False, "Password must contain at least one digit"
+        
+        if PASSWORD_REQUIRE_SPECIAL and not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+            return False, "Password must contain at least one special character (!@#$%^&*...)"
+        
+        # Check for common weak passwords
+        weak_passwords = ['password', '12345678', 'qwerty', 'admin123', 'password123']
+        if password.lower() in weak_passwords:
+            return False, "Password is too common. Please choose a stronger password"
+        
+        return True, None
     
     @staticmethod
     def hash_password(password: str) -> str:

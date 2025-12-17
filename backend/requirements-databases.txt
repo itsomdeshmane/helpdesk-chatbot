@@ -1,0 +1,21 @@
+# Database drivers for multi-database support
+# Install: pip install -r requirements-databases.txt
+
+# MySQL Support
+pymysql==1.1.0
+cryptography==41.0.7  # Required by pymysql for secure connections
+
+# PostgreSQL Support
+psycopg2-binary==2.9.9  # Binary package, no compilation needed
+# OR use: psycopg2==2.9.9 (requires PostgreSQL dev libraries)
+
+# SQL Server Support
+pyodbc==5.0.1  # Requires ODBC Driver 17 for SQL Server
+# Installation notes:
+# - Windows: Install Microsoft ODBC Driver 17 for SQL Server
+# - Linux: apt-get install unixodbc-dev
+# - Mac: brew install unixodbc
+
+# Optional: For production
+sqlalchemy==2.0.23  # Optional ORM support
+

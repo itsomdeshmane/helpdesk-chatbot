@@ -365,16 +365,26 @@ class DatabaseManager:
             return False
     
     def update_system_entity(self, entity_key: str, **kwargs):
-        """Update an existing system entity"""
+        """Update an existing system entity (SQL injection safe)"""
         try:
-            # Build dynamic UPDATE query
-            allowed_fields = ['entity_name', 'entity_type', 'description', 'priority', 'is_active']
+            # SECURITY: Whitelist allowed fields to prevent SQL injection
+            allowed_fields = {
+                'entity_name': 'entity_name',
+                'entity_type': 'entity_type', 
+                'description': 'description',
+                'priority': 'priority',
+                'is_active': 'is_active'
+            }
+            
             updates = []
             values = []
             
             for field, value in kwargs.items():
+                # SECURITY: Only use whitelisted fields (no user input in column names)
                 if field in allowed_fields:
-                    updates.append(f"{field} = %s")
+                    # Use the whitelisted column name (not user input)
+                    safe_field = allowed_fields[field]
+                    updates.append(f"{safe_field} = %s")
                     values.append(value)
             
             if not updates:
@@ -383,6 +393,7 @@ class DatabaseManager:
             values.append(entity_key)
             
             with self.get_connection() as conn:
+                # Safe: Column names from whitelist, values parameterized
                 query = f"UPDATE system_entities SET {', '.join(updates)} WHERE entity_key = %s"
                 conn.execute(query, tuple(values))
                 conn.commit()

@@ -115,12 +115,32 @@ LOG_FILE = os.getenv("LOG_FILE", "logs/helpdesk.log")
 # SECURITY CONFIGURATION
 # =============================================================================
 
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
+# JWT Secret - REQUIRED in production (no default for security)
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not JWT_SECRET_KEY:
+    import secrets
+    print("⚠️  WARNING: JWT_SECRET_KEY not set! Generating temporary key...")
+    print("⚠️  This is NOT suitable for production. Set JWT_SECRET_KEY in .env")
+    JWT_SECRET_KEY = secrets.token_urlsafe(32)
+
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
 
-# CORS Configuration
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:4200,http://localhost:3000").split(",")
+# Password requirements
+PASSWORD_MIN_LENGTH = int(os.getenv("PASSWORD_MIN_LENGTH", "8"))
+PASSWORD_REQUIRE_UPPERCASE = os.getenv("PASSWORD_REQUIRE_UPPERCASE", "true").lower() == "true"
+PASSWORD_REQUIRE_DIGITS = os.getenv("PASSWORD_REQUIRE_DIGITS", "true").lower() == "true"
+PASSWORD_REQUIRE_SPECIAL = os.getenv("PASSWORD_REQUIRE_SPECIAL", "true").lower() == "true"
+
+# CORS Configuration - Use environment variable, never allow wildcard in production
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+if ENVIRONMENT == "production":
+    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "").split(",")
+    if "*" in CORS_ORIGINS or not CORS_ORIGINS[0]:
+        raise ValueError("❌ CORS_ORIGINS must be explicitly set in production (no wildcards)")
+else:
+    # Development: Allow localhost ports
+    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:4200,http://localhost:3000,http://127.0.0.1:4200,http://127.0.0.1:3000").split(",")
 
 # =============================================================================
 # VALIDATION
@@ -129,18 +149,37 @@ CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:4200,http://localhost
 def validate_config():
     """Validate critical configuration settings"""
     errors = []
+    warnings = []
     
+    # Critical errors
     if not OPENAI_API_KEY:
         errors.append("OPENAI_API_KEY is required")
     
     if USE_PINECONE and not PINECONE_API_KEY:
         errors.append("PINECONE_API_KEY is required when USE_PINECONE=true")
     
+    # Security warnings
+    if ENVIRONMENT == "production":
+        if len(JWT_SECRET_KEY) < 32:
+            warnings.append("JWT_SECRET_KEY should be at least 32 characters in production")
+        
+        if JWT_EXPIRATION_HOURS > 168:  # 7 days
+            warnings.append("JWT_EXPIRATION_HOURS > 7 days is not recommended for security")
+        
+        if not CORS_ORIGINS or CORS_ORIGINS == [""]:
+            errors.append("CORS_ORIGINS must be explicitly set in production")
+    
+    # Display results
     if errors:
-        print("⚠️ Configuration errors:")
+        print("❌ Configuration errors:")
         for error in errors:
             print(f"   - {error}")
         return False
+    
+    if warnings:
+        print("⚠️  Configuration warnings:")
+        for warning in warnings:
+            print(f"   - {warning}")
     
     return True
 

@@ -106,3 +106,5 @@ if __name__ == "__main__":
     # Generate a new key for production
     print(f"\nGenerated encryption key for production:\n{generate_encryption_key()}")
 
+
+

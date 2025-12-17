@@ -274,3 +274,5 @@ def get_source_intelligence() -> SourceIntelligence:
         _source_intelligence_instance = SourceIntelligence()
     return _source_intelligence_instance
 
+
+

@@ -528,3 +528,5 @@ def get_query_pipeline(
         )
     
     return _pipeline_instance
+
+

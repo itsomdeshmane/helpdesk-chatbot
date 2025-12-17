@@ -771,3 +771,5 @@ async def auto_train_if_needed(user_id: str, tenant_id: str, connection_string: 
     except Exception as e:
         logger.error(f"Error in auto-training: {e}", exc_info=True)
         return False
+
+

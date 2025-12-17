@@ -12,11 +12,11 @@ router = APIRouter(tags=["Authentication"])
 
 # Request/Response Models
 class RegisterRequest(BaseModel):
-    username: str = Field(..., min_length=3, max_length=50)
+    username: str = Field(..., min_length=3, max_length=50, pattern=r'^[a-zA-Z0-9_-]+$')
     email: EmailStr
-    password: str = Field(..., min_length=6)
-    full_name: Optional[str] = None
-    tenant_id: str = "default"
+    password: str = Field(..., min_length=8, max_length=128)
+    full_name: Optional[str] = Field(None, max_length=200)
+    tenant_id: str = Field("default", max_length=100)
 
 class LoginRequest(BaseModel):
     username: str
@@ -43,13 +43,18 @@ async def register(request: RegisterRequest):
     """
     Register a new user
     
-    - **username**: Unique username (3-50 characters)
+    - **username**: Unique username (3-50 characters, alphanumeric + underscore/hyphen only)
     - **email**: Valid email address
-    - **password**: Password (minimum 6 characters)
+    - **password**: Strong password (minimum 8 characters, must include uppercase, digit, special char)
     - **full_name**: Optional full name
     - **tenant_id**: Organization/tenant identifier
     """
     try:
+        # Validate password strength FIRST
+        is_valid, error_msg = AuthUtils.validate_password(request.password)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
+        
         with db_manager.get_connection() as conn:
             # Check if username already exists
             cursor = conn.execute("SELECT id FROM users WHERE username = %s", (request.username,))
@@ -61,7 +66,7 @@ async def register(request: RegisterRequest):
             if cursor.fetchone():
                 raise HTTPException(status_code=400, detail="Email already registered")
             
-            # Hash password
+            # Hash password (already validated)
             password_hash = AuthUtils.hash_password(request.password)
             
             # Insert new user

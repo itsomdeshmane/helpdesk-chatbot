@@ -1,0 +1,69 @@
+{
+  "_readme": "This file allows you to customize column and table descriptions for better SQL generation",
+  "_instructions": [
+    "1. Copy this file and rename it to column_metadata.json",
+    "2. Set COLUMN_METADATA_FILE environment variable to point to your file",
+    "3. Customize descriptions for your specific database tables/columns",
+    "4. Restart the application to load changes",
+    "5. Note: Database metadata takes precedence over this file"
+  ],
+  "_format_example": {
+    "table_name": {
+      "description": "Description of what this table stores",
+      "columns": {
+        "column_name": "Description of what this column represents"
+      }
+    }
+  },
+  "vendors": {
+    "description": "Vendor and supplier information for procurement",
+    "columns": {
+      "id": "Unique identifier for vendor",
+      "name": "Vendor company name",
+      "country": "Country where vendor is located (used for location-based queries)",
+      "city": "City where vendor headquarters is located",
+      "email": "Primary contact email address",
+      "phone": "Primary contact phone number",
+      "status": "Current status of vendor (active/inactive)",
+      "created_at": "Date when vendor was added to system"
+    }
+  },
+  "customers": {
+    "description": "Customer information and contact details",
+    "columns": {
+      "id": "Unique customer identifier",
+      "first_name": "Customer's first name",
+      "last_name": "Customer's last name",
+      "email": "Customer email address for communications",
+      "country": "Customer's country of residence",
+      "city": "Customer's city of residence",
+      "registration_date": "Date when customer registered"
+    }
+  },
+  "orders": {
+    "description": "Order transactions and details",
+    "columns": {
+      "id": "Unique order identifier",
+      "customer_id": "Reference to customer who placed the order",
+      "order_date": "Date when order was placed",
+      "total_amount": "Total order amount in USD",
+      "status": "Current order status (pending/completed/cancelled)",
+      "shipping_address": "Full shipping address",
+      "payment_method": "Payment method used (credit_card/paypal/etc)"
+    }
+  },
+  "products": {
+    "description": "Product catalog and inventory",
+    "columns": {
+      "id": "Unique product identifier",
+      "name": "Product name",
+      "description": "Detailed product description",
+      "price": "Current selling price in USD",
+      "cost": "Product cost price in USD",
+      "stock_quantity": "Available stock quantity",
+      "category": "Product category classification",
+      "supplier_id": "Reference to vendor/supplier"
+    }
+  }
+}
+

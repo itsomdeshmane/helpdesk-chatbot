@@ -11,6 +11,12 @@ import os
 logger = logging.getLogger(__name__)
 
 
+def get_column_metadata_service():
+    """Import and get metadata service (lazy import to avoid circular dependencies)"""
+    from llm.column_metadata_service import get_column_metadata_service as get_meta_svc
+    return get_meta_svc()
+
+
 class SchemaService:
     """Service for database schema extraction and management"""
     
@@ -208,37 +214,74 @@ class SchemaService:
         
         return schema_dict
     
-    def get_schema_context(self, schema: Dict[str, Any]) -> str:
+    def get_schema_context(
+        self, 
+        schema: Dict[str, Any],
+        tenant_id: Optional[str] = None,
+        database_name: Optional[str] = None,
+        include_descriptions: bool = True
+    ) -> str:
         """
-        Convert schema to string format for LLM context
+        Convert schema to string format for LLM context with enriched metadata
         
         Args:
             schema: Schema dictionary from get_database_schema
+            tenant_id: Tenant ID for metadata lookup
+            database_name: Database name for metadata lookup
+            include_descriptions: Whether to include column descriptions
         
         Returns:
-            Formatted schema string
+            Formatted schema string with descriptions
         """
-        context_lines = ["Database Schema:\n"]
+        # Enrich schema with metadata if requested
+        if include_descriptions and tenant_id and database_name:
+            try:
+                metadata_service = get_column_metadata_service()
+                schema = metadata_service.enrich_schema(schema, tenant_id, database_name)
+            except Exception as e:
+                logger.warning(f"Could not enrich schema with metadata: {e}")
+        
+        context_lines = ["=== DATABASE SCHEMA ===\n"]
         
         for table in schema.get("tables", []):
             table_name = table['table_name']
-            context_lines.append(f"\nTable: {table_name}")
+            context_lines.append(f"\n📊 TABLE: {table_name}")
             
             if table.get('description'):
-                context_lines.append(f"  Description: {table['description']}")
+                context_lines.append(f"   Description: {table['description']}")
             
-            context_lines.append("  Columns:")
+            if table.get('row_count'):
+                context_lines.append(f"   Estimated Rows: {table['row_count']:,}")
+            
+            context_lines.append("   Columns:")
             
             for col in table.get('columns', []):
                 col_name = col['column_name']
                 col_type = col['data_type']
                 nullable = col['is_nullable']
                 key = col.get('column_key', '')
+                col_desc = col.get('description', '')
                 
-                key_str = f" [{key}]" if key else ""
-                null_str = " NULL" if nullable == 'YES' else " NOT NULL"
+                # Build column line with better formatting
+                key_str = ""
+                if key == 'PRI':
+                    key_str = " 🔑 PRIMARY KEY"
+                elif key == 'MUL':
+                    key_str = " 🔗 INDEXED"
+                elif key == 'UNI':
+                    key_str = " ⭐ UNIQUE"
                 
-                context_lines.append(f"    - {col_name} ({col_type}){key_str}{null_str}")
+                null_str = "" if nullable == 'YES' else " NOT NULL"
+                
+                col_line = f"     • {col_name} ({col_type}){key_str}{null_str}"
+                
+                # Add description if available
+                if col_desc:
+                    col_line += f"\n       ℹ️  {col_desc}"
+                
+                context_lines.append(col_line)
+            
+            context_lines.append("")  # Blank line between tables
         
         return "\n".join(context_lines)
     
@@ -284,4 +327,6 @@ def get_schema_service() -> SchemaService:
     if _schema_service_instance is None:
         _schema_service_instance = SchemaService()
     return _schema_service_instance
+
+
 

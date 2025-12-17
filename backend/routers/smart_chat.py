@@ -20,6 +20,9 @@ from llm.database_query_service import get_database_query_service
 from llm.schema_service import get_schema_service
 from llm.clarifying_question_service import get_clarifying_question_service
 from llm.source_intelligence import get_source_intelligence
+from llm.strict_answer_matcher import get_strict_matcher
+from llm.metadata_learning_service import get_metadata_learning_service
+from llm.column_metadata_service import get_column_metadata_service
 from utils.conversation_manager import get_conversation_manager
 from utils.auth import get_current_user_optional
 
@@ -59,6 +62,7 @@ async def smart_query(
     start_time = time.time()
     conv_manager = get_conversation_manager()
     source_intel = get_source_intelligence()
+    learning_service = get_metadata_learning_service()
     
     logger.info(f"Smart query: {query} | Source: {source}")
     
@@ -140,6 +144,67 @@ async def smart_query(
             else:
                 actual_source = "auto"  # Will try both in order
         
+        # STRICT MODE: For auto selection, try exact match from database FIRST
+        # This ensures we ONLY return answers that already exist in DB/documents
+        # WITHOUT using LLM to generate new answers
+        if source == "auto":
+            logger.info("🔒 STRICT AUTO MODE: Checking for exact match in database...")
+            try:
+                strict_matcher = get_strict_matcher(tenant_id)
+                
+                # Try to find exact/highly similar match from database
+                # Using high threshold (0.85) to ensure quality matches only
+                exact_match = strict_matcher.find_exact_match(
+                    query,
+                    similarity_threshold=0.85,  # 85% similarity required
+                    use_semantic=True
+                )
+                
+                if exact_match and exact_match.get('success'):
+                    response["message"] = exact_match['response']
+                    response["source"] = "database_exact_match"
+                    response["matched_query"] = exact_match['matched_query']
+                    response["similarity_score"] = exact_match['similarity_score']
+                    response["confidence"] = exact_match['confidence']
+                    
+                    # Save to conversation history
+                    conv_manager.save_message(
+                        session_id=session_id,
+                        query=query,
+                        response=exact_match['response'],
+                        module=exact_match.get('module', 'Database Match'),
+                        response_time=time.time() - start_time
+                    )
+                    
+                    logger.info(f"✅ STRICT MODE: Exact match found (similarity: {exact_match['similarity_score']:.3f})")
+                    return response
+                else:
+                    logger.info("❌ STRICT MODE: No exact match found in database")
+                    # No exact match found - return "don't have info" message
+                    # DO NOT proceed to LLM generation
+                    response["message"] = "I don't have this exact information in my knowledge base. Please try rephrasing your question or contact support for assistance."
+                    response["source"] = "no_match"
+                    response["requires_clarification"] = True
+                    
+                    conv_manager.save_message(
+                        session_id=session_id,
+                        query=query,
+                        response=response["message"],
+                        module="No Match",
+                        response_time=time.time() - start_time
+                    )
+                    
+                    logger.info("🔒 STRICT MODE: No match found, returning without LLM generation")
+                    return response
+                    
+            except Exception as e:
+                logger.warning(f"⚠️  Strict matching failed: {e}, proceeding to fallback")
+                # If strict matching fails, return error instead of proceeding
+                response["message"] = "I can only answer questions that are already in my knowledge base. I don't have information about this query."
+                response["source"] = "no_match"
+                response["requires_clarification"] = True
+                return response
+        
         # Strategy 1: Documents/RAG (if source is auto or documents)
         # Skip documents if intelligent source detection says "database"
         if actual_source in ["auto", "documents"]:
@@ -194,9 +259,26 @@ async def smart_query(
                 db_service = get_database_query_service()
                 schema_service = get_schema_service()
                 
-                # Get schema for context
+                # Get schema for context with enriched metadata
                 schema = await schema_service.get_database_schema(connection_string)
-                schema_context = schema_service.get_schema_context(schema)
+                
+                # Extract database name from connection string
+                db_name = None
+                if connection_string:
+                    for param in connection_string.split(';'):
+                        if '=' in param:
+                            key, value = param.split('=', 1)
+                            if key.strip().lower() in ['database', 'db', 'database_name']:
+                                db_name = value.strip()
+                                break
+                
+                # Get enriched schema context with metadata descriptions
+                schema_context = schema_service.get_schema_context(
+                    schema, 
+                    tenant_id=tenant_id, 
+                    database_name=db_name,
+                    include_descriptions=True
+                )
                 schema_dict = schema_service.get_schema_dict(schema)
                 
                 # Get conversation history for context
@@ -249,6 +331,38 @@ async def smart_query(
                                 context_used=[{"sql_query": sql_query, "row_count": len(result.get("rows", []))}]
                             )
                             
+                            # 🤖 LEARNING: Record successful query execution
+                            try:
+                                execution_time_ms = int((time.time() - start_time) * 1000)
+                                user_id = current_user.get('username') if current_user else None
+                                
+                                # Extract database name from connection string
+                                db_name = None
+                                if connection_string:
+                                    for param in connection_string.split(';'):
+                                        if '=' in param:
+                                            key, value = param.split('=', 1)
+                                            if key.strip().lower() in ['database', 'db']:
+                                                db_name = value.strip()
+                                                break
+                                
+                                learning_service.record_query_execution(
+                                    tenant_id=tenant_id,
+                                    session_id=session_id,
+                                    user_id=user_id,
+                                    natural_query=query,
+                                    sql_query=sql_query,
+                                    tables_used=available_tables if available_tables else [],
+                                    columns_used=result.get("columns", []),
+                                    success=True,
+                                    execution_time_ms=execution_time_ms,
+                                    rows_returned=len(result.get("rows", [])),
+                                    source_type="database",
+                                    database_name=db_name
+                                )
+                            except Exception as e:
+                                logger.warning(f"Failed to record learning data: {e}")
+                            
                             logger.info("Found answer in database")
                             return response
                         else:
@@ -272,6 +386,34 @@ async def smart_query(
                             return response
                     else:
                         logger.warning(f"Query execution failed: {result.get('message')}")
+                        
+                        # 🤖 LEARNING: Record failed query execution
+                        try:
+                            user_id = current_user.get('username') if current_user else None
+                            db_name = None
+                            if connection_string:
+                                for param in connection_string.split(';'):
+                                    if '=' in param:
+                                        key, value = param.split('=', 1)
+                                        if key.strip().lower() in ['database', 'db']:
+                                            db_name = value.strip()
+                                            break
+                            
+                            learning_service.record_query_execution(
+                                tenant_id=tenant_id,
+                                session_id=session_id,
+                                user_id=user_id,
+                                natural_query=query,
+                                sql_query=sql_query,
+                                tables_used=available_tables if available_tables else [],
+                                columns_used=[],
+                                success=False,
+                                error_message=result.get('message'),
+                                source_type="database",
+                                database_name=db_name
+                            )
+                        except Exception as le:
+                            logger.warning(f"Failed to record learning data: {le}")
                 else:
                     logger.warning(f"Could not generate valid SQL query for: {query}")
             except Exception as e:
@@ -436,6 +578,72 @@ async def smart_stream(
                     yield f"data: {json.dumps({'type': 'status', 'content': status_msg})}\n\n"
                 else:
                     actual_source = "auto"  # Will try both
+            
+            # STRICT MODE: For auto selection, try exact match from database FIRST
+            if source == "auto":
+                yield f"data: {json.dumps({'type': 'status', 'content': '🔒 Checking for exact match in knowledge base...'})}\n\n"
+                
+                try:
+                    strict_matcher = get_strict_matcher(tenant_id)
+                    
+                    # Try to find exact/highly similar match
+                    exact_match = strict_matcher.find_exact_match(
+                        query,
+                        similarity_threshold=0.85,
+                        use_semantic=True
+                    )
+                    
+                    if exact_match and exact_match.get('success'):
+                        # Found exact match - stream the response
+                        logger.info(f"✅ STRICT MODE (stream): Exact match found")
+                        
+                        answer = exact_match['response']
+                        
+                        # Stream answer word by word
+                        words = answer.split(' ')
+                        for word in words:
+                            yield f"data: {json.dumps({'type': 'text', 'content': word + ' '})}\n\n"
+                            await asyncio.sleep(0.03)
+                        
+                        # Send completion
+                        yield f"data: {json.dumps({'type': 'complete', 'content': answer, 'source': 'database_exact_match', 'session_id': new_session_id, 'similarity': exact_match['similarity_score']})}\n\n"
+                        
+                        # Save to history
+                        conv_manager.save_message(new_session_id, query, answer, exact_match.get('module', 'Database Match'), 0)
+                        return
+                    else:
+                        # No exact match found - return "don't have info" message
+                        logger.info("❌ STRICT MODE (stream): No exact match found")
+                        
+                        no_match_msg = "I don't have this exact information in my knowledge base. Please try rephrasing your question or contact support for assistance."
+                        
+                        # Stream the message
+                        words = no_match_msg.split(' ')
+                        for word in words:
+                            yield f"data: {json.dumps({'type': 'text', 'content': word + ' '})}\n\n"
+                            await asyncio.sleep(0.04)
+                        
+                        yield f"data: {json.dumps({'type': 'complete', 'content': no_match_msg, 'source': 'no_match', 'requires_clarification': True, 'session_id': new_session_id})}\n\n"
+                        
+                        # Save to history
+                        conv_manager.save_message(new_session_id, query, no_match_msg, "No Match", 0)
+                        return
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️  Strict matching failed in stream: {e}")
+                    
+                    error_msg = "I can only answer questions that are already in my knowledge base. I don't have information about this query."
+                    
+                    # Stream error message
+                    words = error_msg.split(' ')
+                    for word in words:
+                        yield f"data: {json.dumps({'type': 'text', 'content': word + ' '})}\n\n"
+                        await asyncio.sleep(0.04)
+                    
+                    yield f"data: {json.dumps({'type': 'complete', 'content': error_msg, 'source': 'no_match', 'session_id': new_session_id})}\n\n"
+                    
+                    conv_manager.save_message(new_session_id, query, error_msg, "Error", 0)
+                    return
             
             # Try documents first
             if actual_source in ["auto", "documents"]:
@@ -640,4 +848,5 @@ async def get_history(
     except Exception as e:
         logger.error(f"Error getting history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 

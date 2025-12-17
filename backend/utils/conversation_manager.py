@@ -229,13 +229,13 @@ class ConversationManager:
                     print(f"   ⚠️  Context serialization error (using fallback): {e}", flush=True)
                     context_json = json.dumps(context_used) if context_used else None
                 
-                # Save message (module field kept for DB compatibility but always null)
+                # Save message with module field
                 conn.execute(
                     """INSERT INTO chat_interactions
-                       (conversation_id, tenant_id, query, response, 
+                       (conversation_id, tenant_id, query, response, module,
                         response_time, message_order, context_used)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                    (conversation_id, tenant_id, query, response, 
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (conversation_id, tenant_id, query, response, module,
                      response_time, message_order, context_json)
                 )
                 

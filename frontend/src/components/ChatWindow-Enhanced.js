@@ -189,6 +189,7 @@ export default function ChatWindowEnhanced({ user, onLogout }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
   const messagesEndRef = useRef(null);
+  const initializedRef = useRef(false); // Prevent double initialization
 
   // Auto-scroll to bottom
   const scrollToBottom = () => {
@@ -199,27 +200,22 @@ export default function ChatWindowEnhanced({ user, onLogout }) {
     scrollToBottom();
   }, [messages, streamingContent]);
 
-  // Load chat sessions on mount
-  useEffect(() => {
-    loadChatSessions();
+  // Load a specific session (defined first to avoid initialization errors)
+  const loadSession = useCallback((sessionId, sessionsArray = null) => {
+    setChatSessions(prevSessions => {
+      const sessions = sessionsArray || prevSessions;
+      const session = sessions.find(s => s.id === sessionId);
+      if (session) {
+        setCurrentSessionId(sessionId);
+        chatState.messages$.next(session.messages || []);
+        chatState.sessionId$.next(null); // Reset backend session for new conversation
+      }
+      return prevSessions;
+    });
   }, []);
 
-  // Load all chat sessions
-  const loadChatSessions = () => {
-    const savedSessions = localStorage.getItem('chatSessions');
-    if (savedSessions) {
-      const sessions = JSON.parse(savedSessions);
-      setChatSessions(sessions);
-      
-      // Load the most recent session
-      if (sessions.length > 0 && !currentSessionId) {
-        loadSession(sessions[0].id);
-      }
-    }
-  };
-
   // Create new chat session
-  const createNewChat = () => {
+  const createNewChat = useCallback(() => {
     const newSession = {
       id: Date.now().toString(),
       title: 'New Chat',
@@ -228,68 +224,101 @@ export default function ChatWindowEnhanced({ user, onLogout }) {
       updatedAt: new Date().toISOString()
     };
     
-    const updatedSessions = [newSession, ...chatSessions];
-    setChatSessions(updatedSessions);
-    localStorage.setItem('chatSessions', JSON.stringify(updatedSessions));
+    setChatSessions(prevSessions => {
+      const updatedSessions = [newSession, ...prevSessions];
+      localStorage.setItem('chatSessions', JSON.stringify(updatedSessions));
+      return updatedSessions;
+    });
     
     setCurrentSessionId(newSession.id);
     chatState.messages$.next([]);
     chatState.sessionId$.next(null); // Reset backend session
-  };
+  }, []);
 
-  // Load a specific session
-  const loadSession = (sessionId) => {
-    const session = chatSessions.find(s => s.id === sessionId);
-    if (session) {
-      setCurrentSessionId(sessionId);
-      chatState.messages$.next(session.messages || []);
-      chatState.sessionId$.next(null); // Reset backend session for new conversation
+  // Load all chat sessions
+  const loadChatSessions = useCallback(() => {
+    // Prevent double initialization (React StrictMode runs effects twice)
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+    
+    const savedSessions = localStorage.getItem('chatSessions');
+    if (savedSessions) {
+      const sessions = JSON.parse(savedSessions);
+      setChatSessions(sessions);
+      
+      // Load the most recent session
+      if (sessions.length > 0 && !currentSessionId) {
+        loadSession(sessions[0].id, sessions);
+      }
+    } else {
+      // No saved sessions - create first one
+      const newSession = {
+        id: Date.now().toString(),
+        title: 'New Chat',
+        messages: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      setChatSessions([newSession]);
+      setCurrentSessionId(newSession.id);
+      localStorage.setItem('chatSessions', JSON.stringify([newSession]));
     }
-  };
+  }, [currentSessionId, loadSession]);
 
-  // Save current session
-  const saveCurrentSession = (newMessages) => {
+  // Load chat sessions on mount (runs only once)
+  useEffect(() => {
+    loadChatSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty deps - run only on mount
+
+  // Save current session using functional update to avoid dependency on chatSessions
+  const saveCurrentSession = useCallback((newMessages) => {
     if (!currentSessionId) return;
     
-    const updatedSessions = chatSessions.map(session => {
-      if (session.id === currentSessionId) {
-        // Generate title from first user message if still "New Chat"
-        let title = session.title;
-        if (title === 'New Chat' && newMessages.length > 0) {
-          const firstUserMsg = newMessages.find(m => m.role === 'user');
-          if (firstUserMsg) {
-            title = firstUserMsg.content.substring(0, 50) + (firstUserMsg.content.length > 50 ? '...' : '');
+    setChatSessions(prevSessions => {
+      const updatedSessions = prevSessions.map(session => {
+        if (session.id === currentSessionId) {
+          // Generate title from first user message if still "New Chat"
+          let title = session.title;
+          if (title === 'New Chat' && newMessages.length > 0) {
+            const firstUserMsg = newMessages.find(m => m.role === 'user');
+            if (firstUserMsg) {
+              title = firstUserMsg.content.substring(0, 50) + (firstUserMsg.content.length > 50 ? '...' : '');
+            }
           }
+          
+          return {
+            ...session,
+            title,
+            messages: newMessages,
+            updatedAt: new Date().toISOString()
+          };
         }
-        
-        return {
-          ...session,
-          title,
-          messages: newMessages,
-          updatedAt: new Date().toISOString()
-        };
-      }
-      return session;
+        return session;
+      });
+      
+      localStorage.setItem('chatSessions', JSON.stringify(updatedSessions));
+      return updatedSessions;
     });
-    
-    setChatSessions(updatedSessions);
-    localStorage.setItem('chatSessions', JSON.stringify(updatedSessions));
-  };
+  }, [currentSessionId]);
 
   // Delete a session
-  const deleteSession = (sessionId) => {
-    const updatedSessions = chatSessions.filter(s => s.id !== sessionId);
-    setChatSessions(updatedSessions);
-    localStorage.setItem('chatSessions', JSON.stringify(updatedSessions));
-    
-    if (currentSessionId === sessionId) {
-      if (updatedSessions.length > 0) {
-        loadSession(updatedSessions[0].id);
-      } else {
-        createNewChat();
+  const deleteSession = useCallback((sessionId) => {
+    setChatSessions(prevSessions => {
+      const updatedSessions = prevSessions.filter(s => s.id !== sessionId);
+      localStorage.setItem('chatSessions', JSON.stringify(updatedSessions));
+      
+      if (currentSessionId === sessionId) {
+        if (updatedSessions.length > 0) {
+          loadSession(updatedSessions[0].id, updatedSessions);
+        } else {
+          createNewChat();
+        }
       }
-    }
-  };
+      
+      return updatedSessions;
+    });
+  }, [currentSessionId, loadSession, createNewChat]);
 
   // Subscribe to state changes
   useEffect(() => {
@@ -309,7 +338,7 @@ export default function ChatWindowEnhanced({ user, onLogout }) {
       messagesSub.unsubscribe();
       loadingSub.unsubscribe();
     };
-  }, [currentSessionId, chatSessions]);
+  }, [currentSessionId, saveCurrentSession]); // Added saveCurrentSession, removed chatSessions to prevent infinite loop
 
   // Handle streaming response with source selection
   const handleStreamingResponse = useCallback(async (query, source) => {
@@ -479,12 +508,8 @@ export default function ChatWindowEnhanced({ user, onLogout }) {
     }
   };
 
-  // Initialize first session if none exists
-  useEffect(() => {
-    if (chatSessions.length === 0 && !currentSessionId) {
-      createNewChat();
-    }
-  }, []);
+  // Initialize first session if none exists - REMOVED
+  // This is now handled in loadChatSessions() to prevent duplicates
 
   // Apply theme
   useEffect(() => {
@@ -504,6 +529,7 @@ export default function ChatWindowEnhanced({ user, onLogout }) {
         onClose={() => setSettingsOpen(false)}
         currentTheme={theme}
         onThemeChange={handleThemeChange}
+        user={user}
       />
 
       {/* Sidebar */}
@@ -706,4 +732,5 @@ export default function ChatWindowEnhanced({ user, onLogout }) {
     </div>
   );
 }
+
 

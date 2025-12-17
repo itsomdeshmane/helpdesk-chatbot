@@ -11,6 +11,7 @@ import mysql.connector
 from utils.auth import get_current_user
 from utils.encryption import encrypt_value, decrypt_value
 from database.db_manager import DatabaseManager
+from llm.db_adapters import get_database_adapter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Settings"], prefix="/settings")
@@ -31,7 +32,7 @@ async def get_database_connection(
         with db_manager.get_connection() as conn:
             cursor = conn.execute(
                 """
-                SELECT host, port, database_name, username
+                SELECT db_type, host, port, database_name, username
                 FROM user_database_connections
                 WHERE user_id = %s AND tenant_id = %s
                 LIMIT 1
@@ -45,6 +46,7 @@ async def get_database_connection(
                 return {
                     "success": True,
                     "data": {
+                        "db_type": result.get('db_type', 'mysql'),  # Default to mysql for backward compatibility
                         "host": result['host'],
                         "port": result['port'],
                         "database": result['database_name'],
@@ -64,6 +66,7 @@ async def get_database_connection(
 
 @router.post("/database-connection", summary="Save database connection settings")
 async def save_database_connection(
+    db_type: str = Body(default="mysql"),
     host: str = Body(...),
     port: int = Body(...),
     database: str = Body(...),
@@ -73,6 +76,7 @@ async def save_database_connection(
 ):
     """
     Save or update user's database connection settings
+    Supports MySQL, PostgreSQL, and SQL Server
     Password is encrypted before storage
     """
     try:
@@ -93,37 +97,37 @@ async def save_database_connection(
             existing = cursor.fetchone()
             
             if existing:
-                # Update existing connection
+                # Update existing connection (include db_type)
                 conn.execute(
                     """
                     UPDATE user_database_connections
-                    SET host = %s, port = %s, database_name = %s,
+                    SET db_type = %s, host = %s, port = %s, database_name = %s,
                         username = %s, encrypted_password = %s,
                         updated_at = NOW()
                     WHERE user_id = %s AND tenant_id = %s
                     """,
-                    (host, port, database, username, encrypted_password,
+                    (db_type, host, port, database, username, encrypted_password,
                      current_user['user_id'], current_user['tenant_id'])
                 )
             else:
-                # Insert new connection
+                # Insert new connection (include db_type)
                 conn.execute(
                     """
                     INSERT INTO user_database_connections
-                    (user_id, tenant_id, host, port, database_name, username, encrypted_password)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    (user_id, tenant_id, db_type, host, port, database_name, username, encrypted_password)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (current_user['user_id'], current_user['tenant_id'],
+                    (current_user['user_id'], current_user['tenant_id'], db_type,
                      host, port, database, username, encrypted_password)
                 )
             
             conn.commit()
             
-            logger.info(f"Database connection saved for user {current_user['username']}")
+            logger.info(f"{db_type.upper()} database connection saved for user {current_user['username']}")
             
             return {
                 "success": True,
-                "message": "Database connection saved successfully"
+                "message": f"{db_type.upper()} database connection saved successfully"
             }
     except Exception as e:
         logger.error(f"Error saving database connection: {e}", exc_info=True)
@@ -132,6 +136,7 @@ async def save_database_connection(
 
 @router.post("/test-database-connection", summary="Test database connection")
 async def test_database_connection(
+    db_type: str = Body(default="mysql"),
     host: str = Body(...),
     port: int = Body(...),
     database: str = Body(...),
@@ -141,50 +146,68 @@ async def test_database_connection(
 ):
     """
     Test database connection with provided credentials
+    Supports MySQL, PostgreSQL, and SQL Server
     Does not save the connection
     """
-    logger.info(f"Testing database connection for user {current_user.get('username', 'unknown')}")
+    logger.info(f"Testing {db_type} connection for user {current_user.get('username', 'unknown')}")
     logger.info(f"Connection details: host={host}, port={port}, database={database}, username={username}")
     
     try:
-        # Attempt to connect using pymysql
-        connection = pymysql.connect(
-            host=host,
-            port=int(port),
-            db=database,  # pymysql uses 'db' parameter
-            user=username,
-            password=password,
-            connect_timeout=10,
-            cursorclass=DictCursor,
-            charset='utf8mb4'
-        )
+        # Get appropriate database adapter
+        adapter = get_database_adapter(db_type)
+        
+        # Create connection config
+        connection_config = {
+            'host': host,
+            'port': port,
+            'database': database,
+            'user': username,
+            'password': password
+        }
+        
+        # Attempt to connect
+        connection = adapter.create_connection(connection_config)
         
         logger.info("Connection established, testing with query...")
         
         # Test with a simple query
-        with connection.cursor() as cursor:
+        if db_type == 'mysql':
+            cursor = connection.cursor()
             cursor.execute("SELECT 1 as test")
             result = cursor.fetchone()
-            logger.info(f"Test query result: {result}")
+            cursor.close()
+        elif db_type == 'postgresql':
+            cursor = connection.cursor()
+            cursor.execute("SELECT 1 as test")
+            result = cursor.fetchone()
+            cursor.close()
+        elif db_type == 'sqlserver':
+            cursor = connection.cursor()
+            cursor.execute("SELECT 1 as test")
+            result = cursor.fetchone()
+            cursor.close()
+        
+        logger.info(f"Test query result: {result}")
         
         connection.close()
         
-        logger.info(f"✅ Database connection test successful for user {current_user.get('username', 'unknown')}")
+        logger.info(f"✅ {db_type.upper()} connection test successful for user {current_user.get('username', 'unknown')}")
         
         return {
             "success": True,
-            "message": "Connection successful"
+            "message": f"{db_type.upper()} connection successful"
         }
-    except pymysql.MySQLError as e:
+    except ValueError as e:
+        # Unsupported database type
         error_msg = str(e)
-        logger.warning(f"❌ MySQL connection test failed: {error_msg}")
+        logger.warning(f"❌ Unsupported database type: {error_msg}")
         return {
             "success": False,
-            "message": f"MySQL Error: {error_msg}"
+            "message": f"Unsupported database type: {db_type}"
         }
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"❌ Error testing database connection: {error_msg}", exc_info=True)
+        logger.error(f"❌ Error testing {db_type} connection: {error_msg}", exc_info=True)
         return {
             "success": False,
             "message": f"Connection Error: {error_msg}"
@@ -198,12 +221,13 @@ async def get_user_connection_string(
     """
     Get user's database connection as a connection string
     Used internally by the app to connect to user's database
+    Includes db_type for multi-database support
     """
     try:
         with db_manager.get_connection() as conn:
             cursor = conn.execute(
                 """
-                SELECT host, port, database_name, username, encrypted_password
+                SELECT db_type, host, port, database_name, username, encrypted_password
                 FROM user_database_connections
                 WHERE user_id = %s AND tenant_id = %s
                 LIMIT 1
@@ -217,6 +241,9 @@ async def get_user_connection_string(
                 # Decrypt password
                 password = decrypt_value(result['encrypted_password'])
                 
+                # Get database type (default to mysql for backward compatibility)
+                db_type = result.get('db_type', 'mysql')
+                
                 # Build connection string
                 connection_string = (
                     f"host={result['host']};"
@@ -228,6 +255,7 @@ async def get_user_connection_string(
                 
                 return {
                     "success": True,
+                    "db_type": db_type,
                     "connection_string": connection_string
                 }
             else:
@@ -238,4 +266,5 @@ async def get_user_connection_string(
     except Exception as e:
         logger.error(f"Error getting connection string: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
